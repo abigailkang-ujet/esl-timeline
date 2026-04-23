@@ -58,12 +58,12 @@ Google Sheets "Realistic Scenario - Tasks Details (S2)" ──→ webApp.gs (joi
 
 ---
 
-## File Status (as of 2026-04-22)
+## File Status (as of 2026-04-23)
 
 | File | Status | Description |
 |------|--------|-------------|
 | `webApp.gs` | ✅ Modified locally, redeploy needed | Team resolution, Notion join, error filtering |
-| `index.html` | ✅ Modified locally, redeploy needed | Schedule badge, PRD To Do, Status pill filter, shortName, task wrap fix, search, Gantt bar click, tooltip size/hover split |
+| `index.html` | ✅ Modified locally, redeploy needed | Widget progress (X/Y) + Program Weeks rename + prior: schedule badge, PRD To Do, status pill filter, shortName, task wrap fix, search, Gantt bar click, tooltip size/hover split |
 | `syncNotionToSheets.gs` | ✅ Active, paste into Apps Script | In-place sync + compare (batch bg fix) + dedup + daily trigger |
 | `timeline.html` | Backup | Local standalone version |
 | `syncToNotion.gs` | Deferred | Reverse sync (not needed) |
@@ -132,10 +132,17 @@ tpl.timelineData = JSON.stringify(data)
 - **Gantt bar**: height 10px, border-radius 10px, opacity 0.8
 
 ### Summary Cards (buildSummary)
-- **Row 1** (6 cards): Total Tasks, P0 Tasks, Past Ideal Date, PRD Needed, Teams, Total Dev Weeks
-  - Teams count: based on `TEAM_ORDER` only (excludes Other/removed teams)
-  - PRD Needed: `t.pm && getPrdState(t.prd) === 'missing'` only (missing = empty/"No")
-  - PRD Alert: counts missing + todo + draft + review (done/na excluded)
+- **Row 1** (6 cards, in order): Tasks, P0, Past Ideal Date, PRD, Teams, Program Weeks
+  - **Tasks / P0 / PRD**: render `X / Y` progress format. `X` keeps existing `.number` size/weight (P0 stays red). `Y` is rendered in a `<span class="num-total">` — smaller (0.6em) and muted (`--text-muted`).
+  - **Tasks**: X = `status === 'Closed'` count, Y = `ALL_TASKS.length`. Label: `Complete / Total`.
+  - **P0**: X = P0 & Closed count, Y = P0 total. Label: `P0 Complete / Total`.
+  - **PRD**: X = `prdIsDone(t)` (PM assigned + state `done`), Y = `prdIsRequired(t)` (PM assigned + state ≠ `na`). Label: `PRD Complete / Required`. `-` (N/A) is excluded from the denominator.
+  - **Past Ideal Date**: unchanged count card (`warn` class when > 0).
+  - **Teams**: count of `TEAM_ORDER` entries with at least one task.
+  - **Program Weeks**: calendar weeks of the program (earliest task `start` to latest task `end`, `Math.ceil(span/7d)`). Renders `—` when no valid dates. Replaces the former "Total Dev Weeks" effort sum.
+  - **Empty category** (Y = 0) adds `is-empty` class → 50% opacity on the whole card.
+  - PRD Alert (banner below): counts missing + todo + draft + review (done/na excluded). Unrelated to the PRD summary card.
+  - Helpers live next to `getPrdState()`: `isClosed`, `prdIsDone`, `prdIsRequired`, `programSpanWeeks`.
 - **Status strip** (below Row 1): dynamic pill cards per status
   - 16px bold number + 11px label, bg-elevated background + border
   - STATUS_ORDER: `['To Do', 'Untriaged', 'In Progress', 'Closed']`
@@ -144,14 +151,16 @@ tpl.timelineData = JSON.stringify(data)
   - Click same pill again → deselects (back to ALL)
 
 ### PRD States (`getPrdState` function)
-| Value | State | Badge | Included in PRD Alert? | PRD Needed card? |
-|-------|-------|-------|------------------------|-----------------|
-| `''` / `No` | `missing` | amber N | ✅ | ✅ |
-| `-` | `na` | grey - | ❌ | ❌ |
-| `Y` / `Yes` / `YES` | `done` | green ✓ | ❌ | ❌ |
-| `Draft` | `draft` | amber Draft (0.75 opacity) | ✅ | ❌ |
-| `In Review` / `Review` | `review` | blue Rev | ✅ | ❌ |
-| `To Do` | `todo` | grey `.prd-todo` (`#64748b`/`#f1f5f9`) | ✅ | ❌ |
+| Value | State | Badge | In PRD Alert? | In PRD card **X** (done) | In PRD card **Y** (required) |
+|-------|-------|-------|----------------|--------------------------|------------------------------|
+| `''` / `No` | `missing` | amber N | ✅ | ❌ | ✅ |
+| `-` | `na` | grey - | ❌ | ❌ | ❌ |
+| `Y` / `Yes` / `YES` | `done` | green ✓ | ❌ | ✅ | ✅ |
+| `Draft` | `draft` | amber Draft (0.75 opacity) | ✅ | ❌ | ✅ |
+| `In Review` / `Review` | `review` | blue Rev | ✅ | ❌ | ✅ |
+| `To Do` | `todo` | grey `.prd-todo` (`#64748b`/`#f1f5f9`) | ✅ | ❌ | ✅ |
+
+Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a PM are not counted.
 
 ### PRD Alert Banner
 - **Already started** section: tasks past start date with PRD not done — badge colors vary by state (red/amber/blue)
@@ -297,13 +306,20 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 
 ---
 
-## Current Status (2026-04-22)
+## Repo / Workflow
+
+- **GitHub**: `github.com/abigailkang-ujet/esl-timeline` (initialized 2026-04-23, single `main` branch, solo repo).
+- **Docs layout**: design specs live under `docs/superpowers/specs/`, implementation plans under `docs/superpowers/plans/` (both committed to main).
+- **Deploy**: git commit ≠ live. After merging to `main`, manually paste changed files into the Apps Script editor and use **Deploy → Manage deployments → Edit → New version** to preserve the URL.
+- **No test framework**. Verification is static (grep/read) + post-deploy visual checks.
+
+## Current Status (2026-04-23)
 
 - 7 teams (CALL, SDK, CHAT, API, Email, AGX, DATA), ADX removed
 - Sync confirmed working: 38 in-place updates, JIRA URL matching stable
 - Notion_raw: 37 data rows, no duplicates
 - Known: Chat Orchestration row 35 has 2 Notion pages with same JIRA URL → second is now skipped
 - **Daily auto-sync trigger set** — runs `syncNotionToSheets` every day at 7AM
-- **index.html modified locally (redeploy needed)** — task name wrap fix, tooltip size reduction, tooltip hover split (name-only instant vs 3s full detail)
+- **index.html modified locally (redeploy needed)** — widget progress format (Tasks/P0/PRD → X/Y, Program Weeks rename to calendar span) committed to main on 2026-04-23 + earlier unpushed changes (task name wrap fix, tooltip size reduction, tooltip hover split)
 - webApp.gs redeploy still pending (local changes not yet pushed to Apps Script)
 - syncNotionToSheets.gs: fully operational, compareNotionVsSheets batch fix applied
