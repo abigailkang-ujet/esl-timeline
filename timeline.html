@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESL Phase 1 - Project Timeline</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0; padding: 24px; min-height: 100vh;
+  }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; color: #f8fafc; }
+  .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+
+  /* ── Loading / Error ── */
+  .loading {
+    text-align: center; padding: 80px; color: #64748b; font-size: 16px;
+  }
+  .loading-spinner {
+    width: 40px; height: 40px; border: 3px solid #334155; border-top-color: #60a5fa;
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-box {
+    background: #450a0a; border: 1px solid #7f1d1d; border-radius: 8px;
+    padding: 16px; color: #fca5a5; margin-bottom: 16px;
+  }
+  .updated-at { font-size: 11px; color: #475569; margin-bottom: 16px; }
+
+  /* ── Legend ── */
+  .legend { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #94a3b8; }
+  .legend-color { width: 14px; height: 14px; border-radius: 3px; }
+
+  /* ── Filters ── */
+  .filter-group { margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filter-label { font-size: 11px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; min-width: 32px; }
+  .filter-btn {
+    padding: 5px 12px; border-radius: 6px; border: 1px solid #334155;
+    background: #1e293b; color: #94a3b8; font-size: 12px; cursor: pointer; transition: all 0.2s;
+  }
+  .filter-btn:hover { border-color: #475569; color: #e2e8f0; }
+  .filter-btn.active { background: #334155; border-color: #60a5fa; color: #60a5fa; }
+
+  /* ── Summary cards ── */
+  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .summary-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px; text-align: center; }
+  .summary-card .number { font-size: 26px; font-weight: 700; color: #f8fafc; }
+  .summary-card .label { font-size: 11px; color: #64748b; margin-top: 4px; }
+  .summary-card.warn .number { color: #fbbf24; }
+  .summary-card.danger .number { color: #f87171; }
+
+  /* ── PRD Alert banner ── */
+  .prd-alert {
+    background: #1c1408; border: 1px solid #92400e; border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 16px; display: none;
+  }
+  .prd-alert.show { display: block; }
+  .prd-alert-title { color: #fbbf24; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+  .prd-alert-items { font-size: 12px; color: #d97706; line-height: 1.8; }
+
+  /* ── Timeline table ── */
+  .timeline-container { background: #1e293b; border-radius: 12px; border: 1px solid #334155; overflow-x: auto; }
+  table.timeline { border-collapse: collapse; table-layout: fixed; }
+  table.timeline th, table.timeline td { vertical-align: middle; }
+
+  table.timeline th.info-col {
+    padding: 8px 10px; font-size: 11px; font-weight: 600; color: #64748b;
+    text-transform: uppercase; letter-spacing: 0.5px; text-align: left;
+    border-bottom: 1px solid #334155; white-space: nowrap; background: #1e293b;
+    position: sticky; top: 0; z-index: 6;
+  }
+  table.timeline td.info-col {
+    padding: 0 10px; font-size: 13px; border-bottom: 1px solid rgba(51,65,85,0.5);
+    white-space: nowrap; background: #1e293b;
+  }
+  .sticky-pri  { position: sticky; left: 0;    z-index: 5; }
+  .sticky-task { position: sticky; left: 42px; z-index: 5; }
+
+  th.gantt-col { padding: 0; border-bottom: 1px solid #334155; background: #1e293b; position: sticky; top: 0; z-index: 4; }
+  td.gantt-col { padding: 0; border-bottom: 1px solid rgba(51,65,85,0.5); position: relative; height: 34px; }
+
+  .team-header td { padding: 7px 10px !important; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; background: #0f172a !important; border-bottom: 1px solid #334155 !important; }
+
+  .task-row:hover td.info-col { background: #263548; }
+  .task-row:hover td.gantt-col { background: #263548; }
+
+  .task-name-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+  .task-name-cell a { color: #e2e8f0; text-decoration: none; }
+  .task-name-cell a:hover { color: #60a5fa; text-decoration: underline; }
+
+  .priority-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; min-width: 30px; text-align: center; }
+  .pri-P0 { background: #7f1d1d; color: #fca5a5; }
+  .pri-P1 { background: #78350f; color: #fcd34d; }
+  .pri-P2 { background: #1e3a5f; color: #93c5fd; }
+  .pri-Low, .pri-default { background: #1e293b; color: #64748b; }
+
+  .risk-Low { color: #4ade80; }
+  .risk-Medium { color: #fbbf24; }
+  .risk-High { color: #f87171; }
+
+  .date-cell { color: #94a3b8; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .at-risk td.info-col { background: rgba(239,68,68,0.06) !important; }
+  .at-risk .task-name-cell a, .at-risk .task-name-cell { color: #fca5a5; }
+
+  /* PRD missing badge */
+  .prd-badge {
+    display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px;
+    font-weight: 600; margin-left: 4px; vertical-align: middle;
+  }
+  .prd-missing { background: #7c2d12; color: #fb923c; }
+  .prd-done    { background: #14532d; color: #4ade80; }
+
+  /* ── Gantt internals ── */
+  .gantt-area { position: relative; height: 100%; min-height: 34px; }
+  .gantt-bar { position: absolute; height: 20px; border-radius: 4px; top: 50%; transform: translateY(-50%); opacity: 0.85; min-width: 3px; z-index: 2; }
+  .task-row:hover .gantt-bar { opacity: 1; }
+  .ideal-diamond { position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 10px; height: 10px; background: #f59e0b; border: 1px solid #b45309; z-index: 3; }
+
+  .gantt-header-wrap { position: relative; }
+  .gantt-months-row { display: flex; border-bottom: 1px solid #334155; }
+  .gantt-month-label { text-align: center; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 0; border-right: 1px solid #334155; }
+  .gantt-weeks-row { display: flex; }
+  .gantt-week-label { text-align: center; font-size: 10px; color: #475569; padding: 4px 0; border-right: 1px solid rgba(51,65,85,0.4); }
+  .grid-line { position: absolute; top: 0; bottom: 0; width: 1px; }
+  .today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: #ef4444; z-index: 1; opacity: 0.7; }
+
+  /* ── Tooltip ── */
+  .tooltip {
+    display: none; position: fixed; background: #1e293b; border: 1px solid #475569;
+    border-radius: 8px; padding: 12px; font-size: 12px; z-index: 100; max-width: 360px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); pointer-events: none;
+  }
+  .tooltip.show { display: block; }
+  .tt-title { font-weight: 600; margin-bottom: 8px; color: #f8fafc; font-size: 13px; }
+  .tt-section { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; margin: 8px 0 4px; }
+  .tt-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; }
+  .tt-label { color: #64748b; }
+  .tt-value { color: #e2e8f0; font-weight: 500; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .tt-link { color: #60a5fa; text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>ESL Phase 1 - Project Timeline</h1>
+<p class="subtitle">Gantt chart view — data live from Google Sheets</p>
+
+<!-- ★ 여기에 배포된 Apps Script Web App URL을 붙여넣으세요 ★ -->
+<script>
+const DATA_URL = 'https://script.google.com/macros/s/AKfycbyoE9yfv2s1D9zx6J5h4B0X5Ya-TWPekD6U7KBPToMQ9rYOiyM4sQ730-ud9a65wVhm/exec';
+</script>
+
+<div id="root">
+  <div class="loading">
+    <div class="loading-spinner"></div>
+    <div>Loading data from Google Sheets...</div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ============================================================
+// Config
+// ============================================================
+const TEAM_COLORS = {
+  CALL:'#3b82f6', SDK:'#8b5cf6', CHAT:'#10b981', ADX:'#f97316',
+  Email:'#06b6d4', AGX:'#ec4899', DATA:'#a3e635',
+};
+const TEAM_ORDER = ['CALL','SDK','CHAT','ADX','Email','AGX','DATA'];
+
+const TIMELINE_START = new Date('2026-04-01');
+const TIMELINE_END   = new Date('2026-09-30');
+const DAY_MS    = 86400000;
+const totalDays = Math.round((TIMELINE_END - TIMELINE_START) / DAY_MS);
+const GANTT_W   = 1200;
+
+function parseDate(s) {
+  if (!s) return null;
+  // ISO format "2026-04-15" — use noon to avoid timezone-caused date shifts
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T12:00:00');
+  // Any other format ("July 31, 2026", "Thu Apr 16 2026 ...", etc.)
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function dayOffset(d) { return (d - TIMELINE_START) / DAY_MS; }
+function dayToPx(day) { return (day / totalDays) * GANTT_W; }
+function fmtShort(d)  { return d ? `${d.getMonth()+1}/${d.getDate()}` : '-'; }
+function fmtFull(d)   { return d ? d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '-'; }
+
+// ============================================================
+// State
+// ============================================================
+let ALL_TASKS = [];
+let activeTeam = 'ALL';
+let activePM   = 'ALL';
+
+// ============================================================
+// Load data
+// ============================================================
+async function loadData() {
+  try {
+    // DATA_URL이 설정 안 됐으면 경고
+    if (!DATA_URL || DATA_URL.includes('YOUR_APPS_SCRIPT')) {
+      showError('DATA_URL is not configured. Update the DATA_URL constant at the top of timeline.html with your Apps Script deployment URL.');
+      return;
+    }
+
+    const res = await fetch(DATA_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+
+    if (json.error) throw new Error(json.error);
+
+    ALL_TASKS = json.tasks || [];
+    renderAll(json.updatedAt);
+  } catch (e) {
+    showError(`데이터 로드 실패: ${e.message}`);
+  }
+}
+
+function showError(msg) {
+  document.getElementById('root').innerHTML = `<div class="error-box">${msg}</div>`;
+}
+
+// ============================================================
+// Render everything
+// ============================================================
+function renderAll(updatedAt) {
+  const root = document.getElementById('root');
+  root.innerHTML = '';
+
+  // Summary cards
+  root.appendChild(buildSummary());
+
+  // PRD alert
+  root.appendChild(buildPrdAlert());
+
+  // Legend
+  root.appendChild(buildLegend());
+
+  // Updated timestamp
+  if (updatedAt) {
+    const ts = document.createElement('div');
+    ts.className = 'updated-at';
+    ts.textContent = `Last updated: ${new Date(updatedAt).toLocaleString()}`;
+    root.appendChild(ts);
+  }
+
+  // Team filter
+  root.appendChild(buildFilterGroup('Team', ['ALL', ...TEAM_ORDER], activeTeam, v => { activeTeam = v; renderTimeline(root); }));
+
+  // PM filter
+  const pms = getPMList();
+  if (pms.length > 0) {
+    root.appendChild(buildFilterGroup('PM', ['ALL', ...pms], activePM, v => { activePM = v; renderTimeline(root); }));
+  }
+
+  // Timeline
+  const container = document.createElement('div');
+  container.id = 'timeline-wrap';
+  root.appendChild(container);
+  renderTimeline(root);
+}
+
+function renderTimeline(root) {
+  const existing = document.getElementById('timeline-wrap');
+  if (!existing) return;
+
+  const filtered = ALL_TASKS.filter(t => {
+    const teamOk = activeTeam === 'ALL' || t.team === activeTeam;
+    const pmOk   = activePM === 'ALL'   || matchesPM(t.pm, activePM);
+    return teamOk && pmOk;
+  });
+
+  existing.innerHTML = '';
+  existing.appendChild(buildTimeline(filtered));
+}
+
+// ============================================================
+// Summary cards
+// ============================================================
+function buildSummary() {
+  const tasks = ALL_TASKS.filter(t => t.start && t.end);
+  const atRisk = tasks.filter(t => {
+    const e = parseDate(t.end), i = parseDate(t.ideal);
+    return e && i && e > i;
+  }).length;
+  const noPrd = ALL_TASKS.filter(t => t.pm && !isPrdDone(t.prd)).length;
+  const totalEffort = tasks.reduce((s, t) => s + t.effort, 0);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'summary-cards';
+  wrap.innerHTML = `
+    <div class="summary-card"><div class="number">${ALL_TASKS.length}</div><div class="label">Total Tasks</div></div>
+    <div class="summary-card"><div class="number" style="color:#fca5a5">${ALL_TASKS.filter(t=>t.priority==='P0').length}</div><div class="label">P0 Tasks</div></div>
+    <div class="summary-card ${atRisk>0?'warn':''}"><div class="number">${atRisk}</div><div class="label">Past Ideal Date</div></div>
+    <div class="summary-card ${noPrd>0?'danger':''}"><div class="number">${noPrd}</div><div class="label">PRD Needed</div></div>
+    <div class="summary-card"><div class="number">${new Set(ALL_TASKS.map(t=>t.team).filter(Boolean)).size}</div><div class="label">Teams</div></div>
+    <div class="summary-card"><div class="number">${totalEffort}</div><div class="label">Total Dev Weeks</div></div>`;
+  return wrap;
+}
+
+// ============================================================
+// PRD Alert banner — tasks starting within 3 weeks with no PRD
+// ============================================================
+function buildPrdAlert() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today.getTime() + 21 * DAY_MS); // 3 weeks out
+
+  const upcoming = ALL_TASKS.filter(t => {
+    if (isPrdDone(t.prd)) return false;
+    const start = parseDate(t.start);
+    if (!start) return false;
+    return start >= today && start <= cutoff;
+  });
+
+  const div = document.createElement('div');
+  div.className = 'prd-alert' + (upcoming.length > 0 ? ' show' : '');
+  if (upcoming.length > 0) {
+    div.innerHTML = `
+      <div class="prd-alert-title">⚠ PRD needed — ${upcoming.length} task${upcoming.length > 1 ? 's' : ''} starting within 3 weeks</div>
+      <div class="prd-alert-items">${upcoming.map(t => {
+        const start = parseDate(t.start);
+        const daysUntil = Math.round((start - today) / DAY_MS);
+        const when = daysUntil === 0 ? 'today' : `in ${daysUntil} day${daysUntil > 1 ? 's' : ''}`;
+        return `• [${t.epic}] ${t.task} — starts ${when}${t.pm ? ` — PM: ${t.pm}` : ''}`;
+      }).join('<br>')}</div>`;
+  }
+  return div;
+}
+
+// ============================================================
+// Legend
+// ============================================================
+function buildLegend() {
+  const div = document.createElement('div');
+  div.className = 'legend';
+  div.innerHTML = TEAM_ORDER.map(t => `
+    <div class="legend-item">
+      <div class="legend-color" style="background:${TEAM_COLORS[t]||'#64748b'}"></div> ${t}
+    </div>`).join('') + `
+    <div class="legend-item">
+      <div style="width:10px;height:10px;background:#f59e0b;transform:rotate(45deg);border:1px solid #b45309;"></div>
+      Ideal Delivery
+    </div>
+    <div class="legend-item">
+      <div style="width:20px;height:2px;background:#ef4444;"></div>
+      Today
+    </div>
+    <div class="legend-item">
+      <span class="prd-badge prd-missing">PRD</span> PRD missing
+    </div>
+    <div class="legend-item">
+      <span class="prd-badge prd-done">PRD</span> PRD done
+    </div>`;
+  return div;
+}
+
+// ============================================================
+// Filter buttons
+// ============================================================
+function buildFilterGroup(label, options, current, onChange) {
+  const wrap = document.createElement('div');
+  wrap.className = 'filter-group';
+  const lbl = document.createElement('span');
+  lbl.className = 'filter-label';
+  lbl.textContent = label;
+  wrap.appendChild(lbl);
+
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn' + (opt === current ? ' active' : '');
+    btn.textContent = opt === 'ALL' ? `All ${label}s` : opt;
+    btn.onclick = () => {
+      wrap.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      onChange(opt);
+    };
+    wrap.appendChild(btn);
+  });
+  return wrap;
+}
+
+// ============================================================
+// Gantt table
+// ============================================================
+function buildTimeline(tasks) {
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // Week headers
+  const weeks = [];
+  let d = new Date(TIMELINE_START);
+  while (d < TIMELINE_END) { weeks.push(new Date(d)); d = new Date(d.getTime()+7*DAY_MS); }
+  const weekW = GANTT_W / weeks.length;
+
+  const months = [];
+  weeks.forEach(w => {
+    const key = `${w.getFullYear()}-${w.getMonth()}`;
+    if (!months.length || months[months.length-1].key !== key)
+      months.push({key, name: w.toLocaleDateString('en-US',{month:'short',year:'numeric'}), count:0});
+    months[months.length-1].count++;
+  });
+
+  let ganttHdr = `<div class="gantt-header-wrap" style="width:${GANTT_W}px">
+    <div class="gantt-months-row">
+      ${months.map(m=>`<div class="gantt-month-label" style="width:${m.count*weekW}px">${m.name}</div>`).join('')}
+    </div>
+    <div class="gantt-weeks-row">
+      ${weeks.map(w=>`<div class="gantt-week-label" style="width:${weekW}px">${w.getMonth()+1}/${w.getDate()}</div>`).join('')}
+    </div>
+  </div>`;
+
+  // Group by team
+  const grouped = {};
+  TEAM_ORDER.forEach(t => grouped[t] = []);
+  tasks.forEach(t => { const tm = t.team || 'Other'; if (!grouped[tm]) grouped[tm]=[]; grouped[tm].push(t); });
+
+  let rows = `<thead><tr>
+    <th class="info-col sticky-pri" style="width:42px">Pri</th>
+    <th class="info-col sticky-task" style="width:260px">Task</th>
+    <th class="info-col" style="width:90px">Lead</th>
+    <th class="info-col" style="width:90px">PM</th>
+    <th class="info-col" style="width:50px">PRD</th>
+    <th class="info-col" style="width:50px">Risk</th>
+    <th class="info-col" style="width:55px">Start</th>
+    <th class="info-col" style="width:55px">End</th>
+    <th class="info-col" style="width:55px">Ideal</th>
+    <th class="gantt-col" style="width:${GANTT_W}px;min-width:${GANTT_W}px">${ganttHdr}</th>
+  </tr></thead><tbody>`;
+
+  for (const team of TEAM_ORDER) {
+    const teamTasks = grouped[team];
+    if (!teamTasks || !teamTasks.length) continue;
+    const color = TEAM_COLORS[team] || '#64748b';
+
+    rows += `<tr class="team-header">
+      <td class="info-col" colspan="9" style="color:${color};border-left:3px solid ${color}">${team} <span style="font-weight:400;font-size:11px;color:#64748b">(${teamTasks.length})</span></td>
+      <td class="gantt-col" style="background:#0f172a !important;border-bottom:1px solid #334155 !important;"></td>
+    </tr>`;
+
+    teamTasks.forEach(t => {
+      const sd = parseDate(t.start), ed = parseDate(t.end), id = parseDate(t.ideal);
+      const isAtRisk = ed && id && ed > id;
+
+      // PRD badge
+      const prdDone = isPrdDone(t.prd);
+      const prdMissing = t.pm && !prdDone;
+      const prdBadge = t.pm
+        ? `<span class="prd-badge ${prdDone ? 'prd-done' : 'prd-missing'}">${prdDone ? '✓' : 'N'}</span>`
+        : '<span style="color:#475569">-</span>';
+
+      // PM display (first name only if long)
+      const pmDisplay = t.pm ? t.pm.split(',')[0].trim() : '-';
+      const pmFull = t.pm || '-';
+
+      // Tooltip data
+      const tt = JSON.stringify({
+        task:t.task, epic:t.epic, lead:t.lead, allocation:t.allocation,
+        headcount:t.headcount, pm:pmFull, pmo:t.pmo, prd:t.prd, prdUrl:t.prdUrl,
+        start:t.start, end:t.end, ideal:id?fmtFull(id):'', effort:t.effort,
+        risk:t.risk, note:t.note, status:t.status,
+      });
+
+      // Task name with link
+      const link = t.epicUrl
+        ? `<a href="${t.epicUrl}" target="_blank" title="${t.task}">${t.task}</a>`
+        : t.task;
+
+      // Gantt bar
+      let ganttInner = `<div class="gantt-area" style="width:${GANTT_W}px;position:relative;">`;
+      weeks.forEach((w, i) => {
+        const isMonthBound = i > 0 && w.getMonth() !== weeks[i-1].getMonth();
+        ganttInner += `<div class="grid-line" style="left:${i*weekW}px;background:${isMonthBound?'rgba(51,65,85,0.5)':'rgba(51,65,85,0.15)'}"></div>`;
+      });
+      const todayDays = dayOffset(today);
+      if (todayDays >= 0 && todayDays <= totalDays)
+        ganttInner += `<div class="today-line" style="left:${dayToPx(todayDays)}px"></div>`;
+      if (sd && ed) {
+        const left = dayToPx(dayOffset(sd));
+        const width = Math.max(3, dayToPx(dayOffset(ed)) - left);
+        ganttInner += `<div class="gantt-bar" style="left:${left}px;width:${width}px;background:${color}"></div>`;
+      }
+      if (id) ganttInner += `<div class="ideal-diamond" style="left:${dayToPx(dayOffset(id))}px"></div>`;
+      ganttInner += '</div>';
+
+      const priCls = t.priority ? 'pri-' + t.priority : 'pri-default';
+      rows += `<tr class="task-row ${isAtRisk?'at-risk':''} ${prdMissing?'prd-row':''}" data-tt='${tt.replace(/'/g,"&#39;")}'>
+        <td class="info-col sticky-pri"><span class="priority-badge ${priCls}">${t.priority||'-'}</span></td>
+        <td class="info-col sticky-task task-name-cell" title="${t.task}">${link}</td>
+        <td class="info-col date-cell">${t.lead||'-'}</td>
+        <td class="info-col date-cell" title="${pmFull}">${pmDisplay}</td>
+        <td class="info-col">${prdBadge}</td>
+        <td class="info-col"><span class="risk-${t.risk||''}">${t.risk||'-'}</span></td>
+        <td class="info-col date-cell">${fmtShort(sd)}</td>
+        <td class="info-col date-cell">${fmtShort(ed)}</td>
+        <td class="info-col date-cell" style="${isAtRisk?'color:#fca5a5;font-weight:600':''}">${fmtShort(id)}</td>
+        <td class="gantt-col">${ganttInner}</td>
+      </tr>`;
+    });
+  }
+  rows += '</tbody>';
+
+  const container = document.createElement('div');
+  container.className = 'timeline-container';
+  const table = document.createElement('table');
+  table.className = 'timeline';
+  table.innerHTML = rows;
+  container.appendChild(table);
+
+  // Tooltips
+  const tooltip = document.getElementById('tooltip');
+  table.querySelectorAll('.task-row').forEach(row => {
+    row.addEventListener('mouseenter', () => {
+      const d = JSON.parse(row.dataset.tt);
+      tooltip.innerHTML = `
+        <div class="tt-title">${d.task}</div>
+        ${d.epic?`<div class="tt-row"><span class="tt-label">Epic</span><span class="tt-value">${d.epic}</span></div>`:''}
+        <div class="tt-section">Schedule</div>
+        ${d.lead?`<div class="tt-row"><span class="tt-label">Lead</span><span class="tt-value">${d.lead}</span></div>`:''}
+        ${d.allocation?`<div class="tt-row"><span class="tt-label">Allocation</span><span class="tt-value">${d.allocation}</span></div>`:''}
+        ${d.headcount?`<div class="tt-row"><span class="tt-label">Headcount</span><span class="tt-value">${d.headcount}</span></div>`:''}
+        <div class="tt-row"><span class="tt-label">Start</span><span class="tt-value">${d.start||'-'}</span></div>
+        <div class="tt-row"><span class="tt-label">End</span><span class="tt-value">${d.end||'-'}</span></div>
+        <div class="tt-row"><span class="tt-label">Ideal Delivery</span><span class="tt-value">${d.ideal||'-'}</span></div>
+        <div class="tt-row"><span class="tt-label">Effort</span><span class="tt-value">${d.effort} weeks</span></div>
+        ${d.risk?`<div class="tt-row"><span class="tt-label">Risk</span><span class="tt-value">${d.risk}</span></div>`:''}
+        <div class="tt-section">PM / PRD</div>
+        ${d.pm?`<div class="tt-row"><span class="tt-label">PM Owner</span><span class="tt-value">${d.pm}</span></div>`:''}
+        ${d.pmo?`<div class="tt-row"><span class="tt-label">PMO</span><span class="tt-value">${d.pmo}</span></div>`:''}
+        <div class="tt-row"><span class="tt-label">PRD Done?</span><span class="tt-value">${d.prd||'N/A'}</span></div>
+        ${d.prdUrl?`<div class="tt-row"><span class="tt-label">PRD</span><span class="tt-value"><a class="tt-link" href="${d.prdUrl}" target="_blank">링크 열기</a></span></div>`:''}
+        ${d.status?`<div class="tt-row"><span class="tt-label">Status</span><span class="tt-value">${d.status}</span></div>`:''}
+        ${d.note?`<div class="tt-section">Note</div><div style="color:#94a3b8;font-size:12px;line-height:1.5">${d.note}</div>`:''}`;
+      tooltip.classList.add('show');
+    });
+    row.addEventListener('mousemove', e => {
+      tooltip.style.left = (e.clientX + 16) + 'px';
+      tooltip.style.top  = (e.clientY - 10) + 'px';
+    });
+    row.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+  });
+
+  return container;
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+// PRD 완료 여부 — "Yes", "Y", "y", "yes" 모두 처리
+function isPrdDone(prd) {
+  if (!prd) return false;
+  const v = prd.trim().toUpperCase();
+  return v === 'Y' || v === 'YES';
+}
+
+function getPMList() {
+  const pms = new Set();
+  ALL_TASKS.forEach(t => {
+    if (!t.pm) return;
+    t.pm.split(',').forEach(p => { const n = p.trim(); if (n) pms.add(n); });
+  });
+  return Array.from(pms).sort();
+}
+
+function matchesPM(pmField, target) {
+  if (!pmField) return false;
+  return pmField.split(',').map(p => p.trim()).includes(target);
+}
+
+// ============================================================
+// Boot
+// ============================================================
+loadData();
+</script>
+</body>
+</html>

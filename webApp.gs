@@ -1,0 +1,259 @@
+/**
+ * ESL Timeline — Apps Script Web App
+ * ============================================================
+ * Data sources:
+ *   1. Google Sheets "Realistic Scenario - Tasks Details (S2)" → timeline dates, effort, allocation
+ *   2. Google Sheets "Notion_raw" tab → all Notion fields (kept fresh by syncNotionToSheets.gs)
+ *
+ * Flow:
+ *   syncNotionToSheets.gs  →  writes Notion_raw tab  (run manually or on schedule)
+ *   doGet()                →  reads both tabs, joins on JIRA URL, serves HTML
+ *
+ * Deployment:
+ *   Apps Script → Deploy → Web App → Execute as: Me, Access: Anyone
+ * ============================================================
+ */
+
+const REALISTIC_TAB = 'Realistic Scenario - Tasks Details (S2)';
+
+// Jira 프로젝트 키 prefix → 정규화된 팀명 매핑
+// 여기 없는 prefix는 Notion/Sheets 팀값으로 fallback
+const EPIC_TEAM_MAP = {
+  'CALL': 'CALL',
+  'WEB':  'SDK',
+  'SDK':  'SDK',
+  'AGX':  'AGX',
+  'CHAT': 'CHAT',
+  'API':  'API',
+  'DATA': 'DATA',
+  'DPT':  'DATA',
+  'ESC':  'Email',
+};
+
+// ============================================================
+// Web App Entry Point
+// ============================================================
+function doGet(e) {
+  // Debug: add ?debug=1 to URL to verify server-side data without HTML
+  if (e && e.parameter && e.parameter.debug === '1') {
+    try {
+      const data = buildTimelineData();
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, tasks: data.tasks.length }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  try {
+    const data = buildTimelineData();
+    const tpl = HtmlService.createTemplateFromFile('index');
+    // Escape all characters that can break JS when JSON is injected into a <script> block:
+    // - </script> → prevent early tag close
+    // - U+2028 / U+2029 → Line/Paragraph separator, valid JSON but illegal in JS string literals
+    // - < > → prevent <!-- and --> from being interpreted as HTML comments
+    tpl.timelineData = JSON.stringify(data)
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+    return tpl.evaluate()
+      .setTitle('ESL - Project Timeline')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  } catch (err) {
+    return HtmlService.createHtmlOutput(
+      `<pre style="color:red;padding:20px">Error: ${err.message}\n\n${err.stack}</pre>`
+    );
+  }
+}
+
+// ============================================================
+// Core: join Realistic Scenario + Notion_raw (both from Sheets)
+// ============================================================
+function buildTimelineData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const rsRows                  = readSheet(ss, REALISTIC_TAB);
+  const { byUrl, byName }       = buildNotionIndex(ss);
+
+  const tasks = [];
+  rsRows.forEach(row => {
+    const task = str(row['Task (Do not edit)']);
+    if (!task || task.startsWith('#')) return; // skip empty rows and formula errors (#N/A, #REF!, etc.)
+
+    const epicUrl    = str(row['Epic (Do not edit)']);
+    const hasUrl     = epicUrl.startsWith('http');
+    const epicKey    = hasUrl ? epicUrl.split('/').pop() : '';
+    const epicPrefix = epicKey ? epicKey.split('-')[0] : '';
+    const epicTeam   = EPIC_TEAM_MAP[epicPrefix] || '';   // 알려진 prefix만 신뢰
+    // Join: JIRA URL 우선, 없으면 task 이름(Requirement)으로 fallback
+    const n          = (hasUrl && byUrl[epicUrl]) || byName[task] || {};
+
+    tasks.push({
+      // ── From Realistic Scenario tab (team leads enter these) ──
+      epic:           epicKey,
+      epicUrl:        epicUrl,
+      task:           str(row['Task (Do not edit)']),
+      lead:           str(row['Lead']),
+      allocation:     str(row['Allocation']),
+      headcount:      str(row['Headcount']),
+      risk:           str(row['Risk Factor']),
+      start:          fmtDate(row['Start Date']),
+      end:            fmtDate(row['End Date (Do not edit)']),
+      effort:         num(row['Planned Effort  (#weeks)']),
+      scenarioEffort: num(row['Scenario Estimated Effort (dev weeks)']),
+      ideal:          fmtDate(row['Ideal Delivery (due to SOW)']),
+      note:           str(row['Note']),
+      release:        str(row['Release']),
+      ccaipRelease:   str(row['CCAIP Release [PMO Plan]']),
+
+      // ── From Notion_raw tab (synced by syncNotionToSheets.gs) ──
+      requirement:  n.requirement  || '',
+      priority:     n.priority     || str(row['Priority']),
+      team:         epicTeam       || n.team || str(row['Team']),
+      status:       n.status       || '',
+      strategic:    n.strategic    || '',
+      pm:           n.pm           || '',
+      pmo:          n.pmo          || '',
+      prd:          n.prd          || '',
+      prdUrl:       n.prdUrl       || '',
+      engSize:      n.engSize      || '',
+      pmSize:       n.pmSize       || '',
+      comment:      n.comment      || '',
+      prelimDate:   n.prelimDate   || '',
+      notionStart:  n.notionStart  || '',
+      notionEnd:    n.notionEnd    || '',
+      kickoffLink:  n.kickoffLink  || '',
+      kickoffNotes: n.kickoffNotes || '',
+      blockedBy:    n.blockedBy    || [],
+      blocking:     n.blocking     || [],
+    });
+  });
+
+  return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length };
+}
+
+// ============================================================
+// Build Notion index from Notion_raw Sheets tab
+// Returns { byUrl: { [jiraUrl]: entry }, byName: { [requirement]: entry } }
+// byName is used as fallback when Realistic Scenario row has no Epic URL
+// ============================================================
+function buildNotionIndex(ss) {
+  const rows   = readSheet(ss, 'Notion_raw');
+  const byUrl  = {};
+  const byName = {};
+
+  rows.forEach(row => {
+    const jiraUrl  = str(row['JIRA']);
+    const startEnd = str(row['Start-End Date']);
+    const parts    = startEnd.split(' → ');
+
+    const entry = {
+      requirement:  str(row['Requirement']),
+      priority:     str(row['Priority']),
+      strategic:    str(row['Strategic']),
+      status:       str(row['Status']),
+      pmSize:       str(row['PM Size']),
+      prd:          str(row['PRD (Done? Y/N)']),
+      engSize:      str(row['Eng Size']),
+      team:         str(row['Team']),
+      comment:      str(row['Comment']),
+      pm:           str(row['PM Owner']),
+      pmo:          str(row['PMO Owner']),
+      prelimDate:   str(row['Prelim. Committed Date']),
+      notionStart:  parts[0] ? parts[0].trim() : '',
+      notionEnd:    parts[1] ? parts[1].trim() : '',
+      kickoffLink:  str(row['Kickoff Meeting Link']),
+      kickoffNotes: str(row['Kickoff Meeting Notes']),
+      prdUrl:       str(row['PRD URL']),
+      blockedBy:    parseEpicList(str(row['Blocked by'])),
+      blocking:     parseEpicList(str(row['Blocking'])),
+    };
+
+    if (jiraUrl.startsWith('http')) byUrl[jiraUrl] = entry;
+    const reqName = str(row['Requirement']);
+    if (reqName) byName[reqName] = entry;
+  });
+
+  return { byUrl, byName };
+}
+
+// Notion export: "Task Name (https://notion.so/...)\nTask B (https://...)" → ["Task Name", "Task B"]
+function parseEpicList(s) {
+  if (!s) return [];
+  return String(s).split(/[\n,]+/)
+    .map(function(x) {
+      return x.replace(/\s*\(https?:\/\/[^)]+\)/g, '').trim();
+    })
+    .filter(Boolean);
+}
+
+// ============================================================
+// Sheets reader
+// ============================================================
+function readSheet(ss, tabName) {
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error(`Sheet not found: "${tabName}"`);
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+
+  const headers = values[0].map(h => String(h).trim());
+  return values.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i]; });
+    return obj;
+  });
+}
+
+// ============================================================
+// Value helpers
+// ============================================================
+function str(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).trim();
+}
+
+function num(v) {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function fmtDate(v) {
+  if (!v) return '';
+  if (typeof v.getTime === 'function') {
+    if (isNaN(v.getTime())) return '';
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  if (typeof v === 'number' && v > 1000) {
+    const d = new Date(Math.round((v - 25569) * 86400000));
+    return Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+  }
+  const s = String(v).trim();
+  if (!s) return '';
+  const isoMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return s;
+}
+
+// ============================================================
+// Local test
+// ============================================================
+function testLocally() {
+  const data = buildTimelineData();
+  Logger.log(`Tasks: ${data.tasks.length}`);
+  data.tasks.slice(0, 5).forEach(t => {
+    Logger.log(
+      `${t.priority} | ${t.epic} | ${t.team} | ${t.start}→${t.end} | ` +
+      `PM: ${t.pm || 'none'} | PRD: ${t.prd || 'none'} | Status: ${t.status} | ` +
+      `blocking: [${t.blocking.join(',')}]`
+    );
+  });
+}

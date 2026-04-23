@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Env / secrets (should never be in repo)
+.env
+.env.*
+!.env.example
+
+# clasp (optional Apps Script CLI — if adopted later)
+.clasprc.json
+.clasp.json
