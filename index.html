@@ -87,6 +87,10 @@
   .summary-card .label { font-size: 11px; color: var(--text-muted); margin-top: 6px; font-weight: 500; }
   .summary-card.warn .number { color: var(--amber); }
   .summary-card.danger .number { color: var(--red); }
+  .summary-card .num-total {
+    font-size: 0.6em; color: var(--text-muted); font-weight: normal; letter-spacing: normal;
+  }
+  .summary-card.is-empty { opacity: 0.5; }
 
   /* ── PRD Alert banner ── */
   .prd-alert {
@@ -576,25 +580,43 @@ function buildSummary() {
     const e = parseDate(t.end), i = parseDate(t.ideal);
     return e && i && e > i;
   }).length;
-  const noPrd = ALL_TASKS.filter(function(t) {
-    if (!t.pm) return false;
-    var s = getPrdState(t.prd);
-    return s === 'missing' || s === 'draft' || s === 'review' || s === 'todo';
-  }).length;
-  const totalEffort = tasks.reduce(function(s, t) { return s + t.effort; }, 0);
-
   const wrap = document.createElement('div');
 
-  // ── Row 1: 기존 요약 카드 ──
+  // ── Row 1: 요약 카드 (progress X/Y format) ──
+  const tasksDone = ALL_TASKS.filter(isClosed).length;
+  const tasksTotal = ALL_TASKS.length;
+
+  const p0All = ALL_TASKS.filter(function(t){ return t.priority === 'P0'; });
+  const p0Done = p0All.filter(isClosed).length;
+  const p0Total = p0All.length;
+
+  const prdDone = ALL_TASKS.filter(prdIsDone).length;
+  const prdRequired = ALL_TASKS.filter(prdIsRequired).length;
+
+  const teamsCount = TEAM_ORDER.filter(function(t){
+    return ALL_TASKS.some(function(task){ return getTeamKey(task.team || '') === t; });
+  }).length;
+
+  const progWeeks = programSpanWeeks();
+  const progWeeksDisplay = (progWeeks === null) ? '—' : String(progWeeks);
+
+  // helper for "X / Y" number markup
+  function xy(doneN, totalN, doneColor) {
+    var colorAttr = doneColor ? ' style="color:' + doneColor + '"' : '';
+    return '<span' + colorAttr + '>' + doneN + '</span>' +
+           '<span class="num-total"> / ' + totalN + '</span>';
+  }
+  function emptyCls(totalN) { return (totalN === 0) ? ' is-empty' : ''; }
+
   const row1 = document.createElement('div');
   row1.className = 'summary-cards';
   row1.innerHTML =
-    '<div class="summary-card"><div class="number">' + ALL_TASKS.length + '</div><div class="label">Total Tasks</div></div>' +
-    '<div class="summary-card"><div class="number" style="color:var(--red)">' + ALL_TASKS.filter(function(t){return t.priority==='P0';}).length + '</div><div class="label">P0 Tasks</div></div>' +
+    '<div class="summary-card' + emptyCls(tasksTotal) + '"><div class="number">' + xy(tasksDone, tasksTotal) + '</div><div class="label">Complete / Total</div></div>' +
+    '<div class="summary-card' + emptyCls(p0Total) + '"><div class="number">' + xy(p0Done, p0Total, 'var(--red)') + '</div><div class="label">P0 Complete / Total</div></div>' +
     '<div class="summary-card ' + (atRisk>0?'warn':'') + '"><div class="number">' + atRisk + '</div><div class="label">Past Ideal Date</div></div>' +
-    '<div class="summary-card ' + (noPrd>0?'danger':'') + '"><div class="number">' + noPrd + '</div><div class="label">PRD Needed</div></div>' +
-    '<div class="summary-card"><div class="number">' + TEAM_ORDER.filter(function(t){return ALL_TASKS.some(function(task){return getTeamKey(task.team||'')===t;});}).length + '</div><div class="label">Teams</div></div>' +
-    '<div class="summary-card"><div class="number">' + totalEffort + '</div><div class="label">Total Dev Weeks</div></div>';
+    '<div class="summary-card' + emptyCls(prdRequired) + '"><div class="number">' + xy(prdDone, prdRequired) + '</div><div class="label">PRD Complete / Required</div></div>' +
+    '<div class="summary-card"><div class="number">' + teamsCount + '</div><div class="label">Teams</div></div>' +
+    '<div class="summary-card"><div class="number">' + progWeeksDisplay + '</div><div class="label">Program Weeks</div></div>';
   wrap.appendChild(row1);
 
   // ── Status strip (compact inline, below Row 1) ──
@@ -1055,6 +1077,25 @@ function getPrdState(prd) {
   if (v === 'to do') return 'todo';
   return 'missing';
 }
+
+function isClosed(t) { return t && t.status === 'Closed'; }
+function prdIsDone(t) { return !!(t && t.pm) && getPrdState(t.prd) === 'done'; }
+function prdIsRequired(t) { return !!(t && t.pm) && getPrdState(t.prd) !== 'na'; }
+
+function programSpanWeeks() {
+  var starts = [], ends = [];
+  for (var i = 0; i < ALL_TASKS.length; i++) {
+    var s = parseDate(ALL_TASKS[i].start);
+    var e = parseDate(ALL_TASKS[i].end);
+    if (s) starts.push(s.getTime());
+    if (e) ends.push(e.getTime());
+  }
+  if (!starts.length || !ends.length) return null;
+  var span = Math.max.apply(null, ends) - Math.min.apply(null, starts);
+  if (span <= 0) return 1;
+  return Math.ceil(span / (7 * 24 * 60 * 60 * 1000));
+}
+
 function buildScheduleBadge(t) {
   if (!t.notionEnd) {
     if (t.notionStart) {
