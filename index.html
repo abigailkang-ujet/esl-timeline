@@ -365,7 +365,7 @@ let activePM      = 'ALL';
 let activeStatus  = 'ALL';
 let searchQuery   = '';
 let showDeps      = false;
-let activeSort    = 'default'; // 'default' | 'end' | 'ideal'
+let activeSort    = 'default'; // 'default' | 'start' | 'end' | 'ideal'
 let flatView      = false;
 let lastUpdatedAt = '';
 
@@ -452,7 +452,7 @@ function renderAll(updatedAt) {
   sortLbl.className = 'filter-label';
   sortLbl.textContent = 'Sort';
   ctrlRow.appendChild(sortLbl);
-  var sortOpts = [{v:'default',l:'Default'},{v:'end',l:'End Date'},{v:'ideal',l:'Ideal Date'}];
+  var sortOpts = [{v:'default',l:'Default'},{v:'start',l:'Start Date'},{v:'end',l:'End Date'},{v:'ideal',l:'Ideal Date'}];
   sortOpts.forEach(function(s) {
     var btn = document.createElement('button');
     btn.className = 'filter-btn' + (activeSort === s.v ? ' active' : '');
@@ -831,6 +831,7 @@ function buildTimeline(tasks, teamFilter) {
 
   function sortTaskList(arr) {
     var s = arr.slice();
+    if (activeSort === 'start') s.sort(function(a,b){ return compareDate(a.start, b.start); });
     if (activeSort === 'end')   s.sort(function(a,b){ return compareDate(a.end,   b.end);   });
     if (activeSort === 'ideal') s.sort(function(a,b){ return compareDate(a.ideal, b.ideal); });
     return s;
@@ -987,7 +988,8 @@ function buildTimeline(tasks, teamFilter) {
         clearTimeout(tooltipTimer);
         try {
           var d = JSON.parse(row.dataset.tt);
-          tooltip.innerHTML = '<div style="font-size:12px;font-weight:600;color:#dde3ee;line-height:1.5">' + d.task + '</div>';
+          var epicLabel = row.getAttribute('data-epic');
+          tooltip.innerHTML = '<div style="font-size:12px;font-weight:600;color:#dde3ee;line-height:1.5">' + (epicLabel ? '<span style="color:#94a3b8;font-weight:500">' + epicLabel + '</span> ' : '') + d.task + '</div>';
           tooltip.classList.add('show');
           var ttW = tooltip.offsetWidth, ttH = tooltip.offsetHeight;
           var left = e.clientX + 16, top = e.clientY + 10;
