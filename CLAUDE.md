@@ -24,17 +24,42 @@ Dynamic Gantt timeline driven by Google Sheets (Realistic Scenario) + Notion DB 
 
 ---
 
+## ✅ jira_url as PK (refactor completed 2026-04-27)
+
+**History**: [docs/refactoring-jira-url-pk.md](docs/refactoring-jira-url-pk.md)
+
+Sheets schema migrated from "row-position + task-name" joins to "jira_url" joins. All sync/lookup logic now keys on `jira_url`. Row order in Notion_raw is irrelevant — it can be sorted/shuffled without breaking anything downstream.
+
+**Non-negotiable rules for any future code touching this project:**
+1. **jira_url is the primary key everywhere.** Never use task name or row number as a join key.
+2. **No `ROW()` fallback** in any Sheets formula.
+3. **No `MATCH(task_name; …)`** in any Sheets formula. Use `XLOOKUP($jira_url; Notion_raw!$J:$J; Notion_raw!<target_col>; "")`. *Exception*: a task-name `XLOOKUP` is allowed only as an `IFERROR` fallback after a primary jira_url lookup — solely to handle pre-Jira placeholder tasks (rows that exist in Overall/Realistic but have no Jira ticket yet). See `docs/refactoring-jira-url-pk.md` Step 3.
+4. **Sync script (`syncNotionToSheets.gs`) is clear+dump.** Do not reintroduce in-place update, `claimedRows`, or any logic that depends on Notion_raw row order.
+5. **Manual columns in Overall** (Lead/Allocation/Headcount/Risk/Optimistic/Realistic/Pessimist/Note) are anchored to jira_url. New jira_urls auto-appended via `ensureOverallAnchors()`.
+6. When writing any new formula, ask: "does this still work if Notion_raw is reordered?" If not, rewrite it.
+
+**Current Sheet column layouts:**
+- **Notion_raw**: A=Requirement, B=Priority, C=Strategic, D=Status, E=PM Size, F=PRD, G=Eng Size, H=Team, I=Comment, **J=JIRA (PK)**, K=Prelim Date, L=PM Owner, M=PMO Owner, N=Start-End, O-Q=Kickoff/PRD URLs, R=Blocked by, S=Blocking, T=Notion_ID
+- **Overall**: **A=jira_url (PK)**, B=Priority, C=Task, D=Lead Engineer, E=Allocation, F=Headcount, G=Ideal Delivery, H=T-shirt, I=Risk factor, J=Optimistic, K=Realistic, L=Pessimist, M=Note
+- **Realistic Scenario**: A=Priority, **B=Epic/jira_url (PK, manual)**, C=Task, D=Lead, E=Allocation, F=Headcount, G=Risk Factor, H=Start Date (manual), I=End Date, J=Planned Effort, K=Scenario Estimated Effort, L=Ideal Delivery
+
+---
+
 ## Data Architecture
 
 ```
 Jira (auto-sync) ──→ Notion "ESL Project list" DB
-                              ↓ syncNotionToSheets.gs (manual or scheduled)
-                      Google Sheets "Notion_raw" tab (columns A–S, JIRA = column J)
-                              ↓
+                              ↓ syncNotionToSheets.gs (clear+dump, daily 7 AM trigger)
+                      Google Sheets "Notion_raw" tab (PK: col J = JIRA URL)
+                              ↓ XLOOKUP by jira_url
+                      Google Sheets "Overall" tab (PK: col A = jira_url)
+                              ↓ XLOOKUP by jira_url
 Google Sheets "Realistic Scenario - Tasks Details (S2)" ──→ webApp.gs (join on JIRA URL)
                                                                       ↓
                                                               index.html (serves Gantt)
 ```
+
+All joins are by `jira_url`. Row order in any tab is irrelevant — manual data is anchored by PK.
 
 ---
 
@@ -58,13 +83,13 @@ Google Sheets "Realistic Scenario - Tasks Details (S2)" ──→ webApp.gs (joi
 
 ---
 
-## File Status (as of 2026-04-23)
+## File Status (as of 2026-04-27)
 
 | File | Status | Description |
 |------|--------|-------------|
 | `webApp.gs` | ✅ Modified locally, redeploy needed | Team resolution, Notion join, error filtering |
 | `index.html` | ✅ Modified locally, redeploy needed | Widget progress (X/Y) + Program Weeks rename + prior: schedule badge, PRD To Do, status pill filter, shortName, task wrap fix, search, Gantt bar click, tooltip size/hover split |
-| `syncNotionToSheets.gs` | ✅ Active, paste into Apps Script | In-place sync + compare (batch bg fix) + dedup + daily trigger |
+| `syncNotionToSheets.gs` | ✅ Refactored (787 lines, was 933) | Clear+dump strategy, jira_url as PK, `ensureOverallAnchors()` auto-append |
 | `timeline.html` | Backup | Local standalone version |
 | `syncToNotion.gs` | Deferred | Reverse sync (not needed) |
 
@@ -290,19 +315,20 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 
 ---
 
-## syncNotionToSheets.gs — Menu Functions (as of 2026-04-21)
+## syncNotionToSheets.gs — Menu Functions (as of 2026-04-27)
 
 | Menu Item | Function | Notes |
 |-----------|----------|-------|
-| Run Sync Now | `runSyncWithAlert` | In-place update, toast progress, alert on complete |
-| Compare Notion vs Sheets | `compareNotionVsSheets` | Writes diff to hidden "Notion_diff" tab (overwrites each run) |
-| Remove Duplicate Rows | `removeDuplicateRows` | Batch dedup, try/catch + step toasts. Run once if needed. |
+| Run Sync Now | `runSyncWithAlert` | Clear+dump sync, alert on complete |
+| Compare Notion vs Sheets | `compareNotionVsSheets` | Writes diff to "Notion_diff" tab (overwrites each run) |
+| Ensure Overall Anchors | `ensureOverallAnchors` | Appends missing jira_urls to Overall (also auto-called at end of every sync) |
+| Remove Duplicate Rows | `removeDuplicateRows` | Manual dedup tool. Rarely needed under clear+dump. |
 | Set Up Daily Auto-Sync | `setupDailyTrigger` | Runs sync daily at 7AM |
 | Remove Auto-Sync | `removeDailyTrigger` | Removes trigger |
 
 **Diagnostic functions** (run from editor, not menu):
-- `diagnoseDoubleMatch()` — finds Notion pages that map to same sheet row
 - `diagnosePage()` — logs all Notion properties for a specific JIRA URL
+- `testSyncNotionToSheets()` — runs sync with extra logging + sheet preview
 
 ---
 
@@ -313,13 +339,13 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **Deploy**: git commit ≠ live. After merging to `main`, manually paste changed files into the Apps Script editor and use **Deploy → Manage deployments → Edit → New version** to preserve the URL.
 - **No test framework**. Verification is static (grep/read) + post-deploy visual checks.
 
-## Current Status (2026-04-23)
+## Current Status (2026-04-27)
 
 - 7 teams (CALL, SDK, CHAT, API, Email, AGX, DATA), ADX removed
-- Sync confirmed working: 38 in-place updates, JIRA URL matching stable
-- Notion_raw: 37 data rows, no duplicates
-- Known: Chat Orchestration row 35 has 2 Notion pages with same JIRA URL → second is now skipped
-- **Daily auto-sync trigger set** — runs `syncNotionToSheets` every day at 7AM
+- **Refactor complete** — Sheets schema fully on jira_url PK; `syncNotionToSheets.gs` simplified to clear+dump (787 lines, was 933)
+- Notion_raw: ~37 data rows, header at row 1, jira_url at col J, Notion_ID at col T
+- Known: Chat Orchestration has 2 Notion pages with same JIRA URL → both rows now appear in Notion_raw (Overall's XLOOKUP picks first match)
+- **Daily auto-sync trigger active** — runs `syncNotionToSheets` (clear+dump + ensureOverallAnchors) every day at 7AM
 - **index.html modified locally (redeploy needed)** — widget progress format (Tasks/P0/PRD → X/Y, Program Weeks rename to calendar span) committed to main on 2026-04-23 + earlier unpushed changes (task name wrap fix, tooltip size reduction, tooltip hover split)
 - webApp.gs redeploy still pending (local changes not yet pushed to Apps Script)
-- syncNotionToSheets.gs: fully operational, compareNotionVsSheets batch fix applied
+- syncNotionToSheets.gs: deployed and validated — 3 tests passed (manual anchor run, full sync, anchor recreation), Notion_raw row reorder doesn't break Overall

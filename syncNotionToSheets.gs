@@ -2,22 +2,21 @@
  * syncNotionToSheets.gs
  * ============================================================
  * Syncs the Notion "ESL Project list" DB to the Google Sheets
- * tab "Notion_raw" (columns A–S).
+ * tab "Notion_raw" (columns A–S, plus Notion_ID at T).
  *
- * Strategy: IN-PLACE UPDATE (preserves existing row order)
- *   1. Read Notion_raw into memory.
- *   2. Build index maps: { jiraUrl → arrayIndex } and { requirement → arrayIndex }.
- *   3. Fetch all pages from Notion API.
- *   4. For each Notion page:
- *        - Match by JIRA URL first, then by Requirement name.
- *        - If matched → update that slot in the in-memory array.
- *        - If no match → append as new row at the end.
- *   5. Write the entire array back to the sheet in one batch call.
+ * Strategy: CLEAR + DUMP (jira_url is PK)
+ *   1. Fetch all pages from Notion API.
+ *   2. Build a row per page in NOTION_RAW_HEADERS order.
+ *   3. Clear existing data rows (cols A–Notion_ID), write fresh.
+ *   4. Run ensureOverallAnchors() so any new jira_urls get a row in Overall.
  *
- *   Row order is NEVER changed. Formulas in other tabs that reference
- *   Notion_raw by row position remain valid.
+ *   Row order is NOT preserved — and intentionally so. After the 2026-04
+ *   refactor, all downstream tabs (Overall, Realistic Scenario) join on
+ *   jira_url via XLOOKUP. Row position is irrelevant; manual-input columns
+ *   in Overall are anchored to jira_url, not row number, so they survive
+ *   any reordering of Notion_raw.
  *
- * Column order (must match; col J = JIRA URL for Overall tab formulas):
+ * Column order (col J = JIRA URL, the primary key):
  *   A  Requirement
  *   B  Priority
  *   C  Strategic
@@ -27,7 +26,7 @@
  *   G  Eng Size
  *   H  Team
  *   I  Comment
- *   J  JIRA                   <- INDEX/MATCH anchor in Overall tab
+ *   J  JIRA                   <- PK (XLOOKUP key in Overall + Realistic)
  *   K  Prelim. Committed Date
  *   L  PM Owner
  *   M  PMO Owner
@@ -37,6 +36,7 @@
  *   Q  PRD URL
  *   R  Blocked by
  *   S  Blocking
+ *   T  Notion_ID (page UUID, kept for diagnostics only)
  *
  * Requirements:
  *   - Script Property "notionToken" must be set.
@@ -71,8 +71,19 @@ const NOTION_RAW_HEADERS = [
 ];
 
 // ============================================================
-// Main sync function — in-place update
+// Main sync function — clear + dump (jira_url is PK)
 // ============================================================
+//
+// Strategy: full overwrite on every sync.
+//   1. Fetch all Notion pages.
+//   2. Build a row per page (A through Notion_ID).
+//   3. Clear existing data rows in cols A–Notion_ID, write fresh.
+//   4. Call ensureOverallAnchors() so new jira_urls appear in Overall.
+//
+// Row order is NOT preserved — and no longer needs to be. All downstream
+// formulas (Overall, Realistic Scenario) join on jira_url (PK), so the
+// physical row position of any task is irrelevant.
+//
 function syncNotionToSheets() {
   const token = PropertiesService.getScriptProperties().getProperty('notionToken');
   if (!token) throw new Error('notionToken not found in Script Properties');
@@ -80,71 +91,26 @@ function syncNotionToSheets() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getOrCreateSheet_(ss, NOTION_RAW_TAB);
 
-  // ── 1. Read ALL existing sheet data into memory ─────────────
-  // Read every column (including any beyond S) so we never lose extra data.
-  var data = sheet.getDataRange().getValues();
-  if (data.length === 0 || String(data[0][0]).trim() !== 'Requirement') {
-    data = [NOTION_RAW_HEADERS];
-  }
+  const totalCols    = NOTION_RAW_HEADERS.length + 1;          // +1 for Notion_ID
+  const finalHeaders = NOTION_RAW_HEADERS.concat(['Notion_ID']);
 
-  var headers    = data[0];
-  var jiraColIdx = headers.indexOf('JIRA');         // col J = index 9
-  var reqColIdx  = headers.indexOf('Requirement');  // col A = index 0
-
-  // ── 2. Find or add Notion_ID column ─────────────────────────
-  // Notion_ID stores the stable Notion page UUID — never changes even if
-  // the Requirement name is renamed in Notion. Used as the primary match key.
-  var notionIdColIdx = headers.indexOf('Notion_ID');
-  if (notionIdColIdx === -1) {
-    notionIdColIdx = headers.length;
-    for (var r = 0; r < data.length; r++) {
-      data[r].push(r === 0 ? 'Notion_ID' : '');
-    }
-    Logger.log('Notion_ID column added at col index ' + notionIdColIdx);
-  }
-
-  // Total column count (now includes Notion_ID if just added)
-  var totalCols = data[0].length;
-
-  // ── 3. Build index maps ─────────────────────────────────────
-  var byNotionId = {};  // { page.id  → dataIndex }  ← primary (stable UUID)
-  var byJiraUrl  = {};  // { jiraUrl  → dataIndex }  ← secondary
-  var byReq      = {};  // { reqName  → dataIndex }  ← fallback
-
-  // First-occurrence wins: original rows (higher up) take priority over
-  // any duplicate rows appended at the bottom from failed earlier syncs.
-  for (var i = 1; i < data.length; i++) {
-    var notionId = String(data[i][notionIdColIdx] || '').trim();
-    var jiraUrl  = String(data[i][jiraColIdx]     || '').trim();
-    var req      = String(data[i][reqColIdx]      || '').trim();
-    if (notionId && !byNotionId[notionId]) byNotionId[notionId] = i;
-    if (jiraUrl && jiraUrl.startsWith('http') && !byJiraUrl[jiraUrl]) byJiraUrl[jiraUrl] = i;
-    if (req && !byReq[req]) byReq[req] = i;
-  }
-
-  // ── 3. Fetch all Notion pages ───────────────────────────────
+  // ── 1. Fetch all Notion pages ────────────────────────────────
   Logger.log('Fetching Notion pages...');
   const pages = fetchAllNotionPages_(token, NOTION_DB_ID);
-  Logger.log(`Fetched ${pages.length} total Notion pages.`);
+  Logger.log('Fetched ' + pages.length + ' total Notion pages.');
 
   const pageIdToJiraKey = buildPageIdToJiraKeyMap_(pages);
-  Logger.log(`pageId map: ${Object.keys(pageIdToJiraKey).length} entries.`);
 
-  // ── 4. Match each page → update in-place or append ─────────
-  let matched = 0;
-  let added   = 0;
+  // ── 2. Convert each page to a row in NOTION_RAW_HEADERS order
+  const rows  = [];
   let skipped = 0;
-  var claimedRows = {};  // rowIdx → first req that claimed it (prevents double-write)
 
   pages.forEach(function(page) {
-    const props   = page.properties;
-    const req     = notionTitle_(props['Requirement']);
-    const jiraUrl = notionUrl_(props['JIRA']);
-
-    // Skip pages with no requirement name at all
+    const props = page.properties;
+    const req   = notionTitle_(props['Requirement']);
     if (!req) { skipped++; return; }
 
-    // Build the row values in NOTION_RAW_HEADERS column order
+    const jiraUrl       = notionUrl_(props['JIRA']);
     const blockedByIds  = notionRelation_(props['Blocked by']).concat(notionRelation_(props['Blocked by 1']));
     const blockingIds   = notionRelation_(props['Blocking']).concat(notionRelation_(props['Blocking 1']));
     const blockedByKeys = blockedByIds.map(function(id) { return pageIdToJiraKey[id] || id; }).join(', ');
@@ -152,7 +118,7 @@ function syncNotionToSheets() {
     const dateRange     = notionDateRange_(props['Start-End Date']);
     const startEndStr   = formatDateRange_(dateRange.start, dateRange.end);
 
-    const rowValues = [
+    rows.push([
       req,                                              // A  Requirement
       notionSelect_(props['Priority']),                 // B
       notionCheckboxOrSelect_(props['Strategic']),       // C
@@ -162,7 +128,7 @@ function syncNotionToSheets() {
       notionSelect_(props['Eng Size']),                 // G
       notionSelectOrMulti_(props['Team']),              // H
       notionText_(props['Comment']),                    // I
-      jiraUrl,                                          // J  JIRA URL
+      jiraUrl,                                          // J  JIRA URL  (PK)
       notionDate_(props['Prelim. Committed Date']),     // K
       notionPerson_(props['PM Owner']),                 // L
       notionPerson_(props['PMO Owner']),                // M
@@ -172,77 +138,46 @@ function syncNotionToSheets() {
       notionUrl_(props['PRD URL']),                     // Q
       blockedByKeys,                                    // R
       blockingKeys,                                     // S
-    ];
-
-    // Match priority: JIRA URL → Notion_ID → Requirement name
-    var idx = null;
-    if (jiraUrl && jiraUrl.startsWith('http') && byJiraUrl[jiraUrl] !== undefined) {
-      idx = byJiraUrl[jiraUrl];
-    } else if (byNotionId[page.id] !== undefined) {
-      idx = byNotionId[page.id];
-    } else if (byReq[req] !== undefined) {
-      idx = byReq[req];
-    }
-
-    if (idx !== null) {
-      // Guard: if this row was already updated by a different Notion page, skip to avoid overwrite.
-      if (claimedRows[idx] !== undefined) {
-        Logger.log('WARNING: Row ' + (idx+1) + ' already claimed by "' + claimedRows[idx] + '". Skipping duplicate Notion page: "' + req + '" (' + jiraUrl + ')');
-        skipped++;
-        return;
-      }
-      claimedRows[idx] = req;
-      // Update in-place: overwrite A–S cols + write Notion_ID.
-      for (var c = 0; c < rowValues.length; c++) {
-        data[idx][c] = rowValues[c];
-      }
-      data[idx][notionIdColIdx] = page.id;  // stamp the stable page ID
-      matched++;
-    } else {
-      // New row: A–S values + Notion_ID + empty strings for any extra columns
-      var newRow = rowValues.slice();
-      while (newRow.length < notionIdColIdx) newRow.push('');
-      newRow.push(page.id);  // Notion_ID
-      while (newRow.length < totalCols) newRow.push('');
-      data.push(newRow);
-      var newIdx = data.length - 1;
-      claimedRows[newIdx] = req;
-      byNotionId[page.id] = newIdx;
-      if (jiraUrl && jiraUrl.startsWith('http')) byJiraUrl[jiraUrl] = newIdx;
-      byReq[req] = newIdx;
-      added++;
-    }
+      page.id,                                          // T  Notion_ID (diagnostic)
+    ]);
   });
 
-  Logger.log('In-place updates: ' + matched + ', New rows appended: ' + added + ', Skipped (no name): ' + skipped);
-
-  // ── 5. Write entire array back in one batch call ────────────
-  // Write ALL columns (totalCols) so extra columns beyond S are preserved.
-  // No clearContents — overwrite in place so data is never lost on error.
-  sheet.getRange(1, 1, data.length, totalCols).setValues(data);
-  sheet.setFrozenRows(1);
-
-  Logger.log('Notion_raw sync complete. Total data rows: ' + (data.length - 1));
-
-  // ── 6. Duplicate Requirement check ─────────────────────────
-  // Warn if the same Requirement name appears more than once (can happen if
-  // a Notion page was renamed — the old row stays, a new row is appended).
-  var reqCount = {};
-  for (var i = 1; i < data.length; i++) {
-    var r = String(data[i][reqColIdx] || '').trim();
-    if (r) reqCount[r] = (reqCount[r] || 0) + 1;
+  // ── 3. Clear existing data rows and write fresh ──────────────
+  // Only clear cols A–Notion_ID; any extra cols beyond stay untouched.
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    sheet.getRange(2, 1, lastRow - 1, totalCols).clearContent();
   }
-  var duplicates = Object.keys(reqCount).filter(function(r) { return reqCount[r] > 1; });
+  sheet.getRange(1, 1, 1, totalCols).setValues([finalHeaders]);
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, totalCols).setValues(rows);
+  }
+  sheet.setFrozenRows(1);
+  Logger.log('Notion_raw sync complete. Rows written: ' + rows.length);
+
+  // ── 4. Ensure Overall has anchor row for every jira_url ──────
+  try {
+    ensureOverallAnchors();
+  } catch (e) {
+    Logger.log('ensureOverallAnchors warning (non-fatal): ' + e.message);
+  }
+
+  // ── 5. Informational: duplicate Requirement names in Notion ──
+  const reqCount = {};
+  rows.forEach(function(r) {
+    const name = String(r[0] || '').trim();
+    if (name) reqCount[name] = (reqCount[name] || 0) + 1;
+  });
+  const duplicates = Object.keys(reqCount).filter(function(r) { return reqCount[r] > 1; });
   if (duplicates.length > 0) {
-    Logger.log('WARNING: Duplicate Requirement names found: ' + duplicates.join(', '));
+    Logger.log('NOTE: Duplicate Requirement names in Notion: ' + duplicates.join(', '));
   }
 
   return {
-    matched:        matched,
-    added:          added,
-    skipped:        skipped,
-    totalFetched:   pages.length,
-    duplicates:     duplicates,
+    rowsWritten:  rows.length,
+    skipped:      skipped,
+    totalFetched: pages.length,
+    duplicates:   duplicates,
   };
 }
 
@@ -313,6 +248,67 @@ function getOrCreateSheet_(ss, name) {
     Logger.log('Created new sheet: "' + name + '"');
   }
   return sheet;
+}
+
+// ============================================================
+// Overall tab anchor maintenance
+// ============================================================
+/**
+ * Ensures every jira_url in Notion_raw exists as an anchor row in Overall.
+ * Missing jira_urls are appended at the bottom of Overall; manual columns
+ * (Lead, Allocation, Headcount, Risk, etc.) remain blank for human input.
+ *
+ * Called automatically at the end of syncNotionToSheets().
+ * Can also be run manually from the menu ("Ensure Overall Anchors").
+ *
+ * Row order is NOT preserved — PK-based XLOOKUPs in other tabs are
+ * independent of row position, so append-at-bottom is always safe.
+ */
+function ensureOverallAnchors() {
+  var ss      = SpreadsheetApp.getActiveSpreadsheet();
+  var overall = ss.getSheetByName('Overall');
+  var raw     = ss.getSheetByName(NOTION_RAW_TAB);
+  if (!overall) throw new Error('Overall tab not found.');
+  if (!raw)     throw new Error('Notion_raw tab not found.');
+
+  // Notion_raw jira_url column = col J (index 10, 1-based)
+  var rawLastRow = raw.getLastRow();
+  if (rawLastRow < 2) {
+    Logger.log('ensureOverallAnchors: Notion_raw is empty, nothing to do.');
+    return;
+  }
+  var rawUrls = raw.getRange(2, 10, rawLastRow - 1, 1)
+                   .getValues()
+                   .map(function(r) { return String(r[0] || '').trim(); })
+                   .filter(function(u) { return u && u.indexOf('http') === 0; });
+
+  // Overall jira_url column = col A
+  var overallLastRow = overall.getLastRow();
+  var existingUrls = {};
+  if (overallLastRow >= 2) {
+    overall.getRange(2, 1, overallLastRow - 1, 1)
+           .getValues()
+           .forEach(function(r) {
+             var v = String(r[0] || '').trim();
+             if (v) existingUrls[v] = true;
+           });
+  }
+
+  var missing = rawUrls.filter(function(u) { return !existingUrls[u]; });
+  if (missing.length === 0) {
+    Logger.log('ensureOverallAnchors: Overall is already up to date.');
+    ss.toast('Overall anchors: up to date', 'Overall', 5);
+    return;
+  }
+
+  // Append missing urls as new rows, col A only (formulas in B onward
+  // will auto-populate via XLOOKUP; manual cols stay blank).
+  var appendStartRow = overall.getLastRow() + 1;
+  overall.getRange(appendStartRow, 1, missing.length, 1)
+         .setValues(missing.map(function(u) { return [u]; }));
+
+  Logger.log('ensureOverallAnchors: appended ' + missing.length + ' new jira_url anchor(s).');
+  ss.toast('Overall anchors: appended ' + missing.length + ' new row(s)', 'Overall', 5);
 }
 
 // ============================================================
@@ -575,6 +571,7 @@ function onOpen() {
     .createMenu('Notion Sync')
     .addItem('Run Sync Now', 'runSyncWithAlert')
     .addItem('Compare Notion vs Sheets', 'compareNotionVsSheets')
+    .addItem('Ensure Overall Anchors', 'ensureOverallAnchors')
     .addSeparator()
     .addItem('Remove Duplicate Rows (run once to fix)', 'removeDuplicateRows')
     .addSeparator()
@@ -594,13 +591,11 @@ function runSyncWithAlert() {
     ss.toast('Syncing with Notion... this may take 10–30 seconds.', 'Notion Sync', 60);
     var result = syncNotionToSheets();
     var msg =
-      'Updated : ' + result.matched + ' rows\n' +
-      'New rows : ' + result.added  + '\n' +
-      'Skipped (no name) : ' + result.skipped + '\n' +
-      'Total from Notion : ' + result.totalFetched;
+      'Total from Notion : ' + result.totalFetched + '\n' +
+      'Rows written      : ' + result.rowsWritten + '\n' +
+      'Skipped (no name) : ' + result.skipped;
     if (result.duplicates && result.duplicates.length > 0) {
-      msg += '\n\n⚠️ Duplicate Requirement names found:\n' + result.duplicates.join('\n') +
-             '\n\nThese may be caused by renamed Notion pages. Please check Notion_raw and remove the stale row manually.';
+      msg += '\n\nNote: Duplicate Requirement names in Notion:\n' + result.duplicates.join('\n');
     }
     ui.alert('Notion Sync Complete', msg, ui.ButtonSet.OK);
   } catch (err) {
@@ -725,76 +720,6 @@ function removeDailyTrigger() {
 // Diagnostic: inspect raw Notion properties for a specific JIRA URL
 // Usage: set JIRA_URL below and run diagnosePage_()
 // ============================================================
-function diagnoseDoubleMatch() {
-  var token = PropertiesService.getScriptProperties().getProperty('notionToken');
-  if (!token) throw new Error('notionToken not found in Script Properties');
-
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(NOTION_RAW_TAB);
-  var data  = sheet.getDataRange().getValues();
-  var headers      = data[0];
-  var jiraColIdx   = headers.indexOf('JIRA');
-  var reqColIdx    = headers.indexOf('Requirement');
-  var notionIdColIdx = headers.indexOf('Notion_ID');
-
-  // Build same index maps as syncNotionToSheets
-  var byNotionId = {}, byJiraUrl = {}, byReq = {};
-  for (var i = 1; i < data.length; i++) {
-    var nid  = String(data[i][notionIdColIdx] || '').trim();
-    var jurl = String(data[i][jiraColIdx]     || '').trim();
-    var req  = String(data[i][reqColIdx]      || '').trim();
-    if (nid  && !byNotionId[nid])                              byNotionId[nid]  = i;
-    if (jurl && jurl.startsWith('http') && !byJiraUrl[jurl])  byJiraUrl[jurl]  = i;
-    if (req  && !byReq[req])                                   byReq[req]       = i;
-  }
-
-  var pages = fetchAllNotionPages_(token, NOTION_DB_ID);
-  Logger.log('Total Notion pages: ' + pages.length);
-
-  var rowHitCount = {};  // rowIdx → [requirement1, requirement2, ...]
-  var unmatchedPages = [];
-
-  pages.forEach(function(page) {
-    var props   = page.properties;
-    var req     = notionTitle_(props['Requirement']);
-    var jiraUrl = notionUrl_(props['JIRA']);
-    if (!req) return;
-
-    var idx = null;
-    var matchedBy = '';
-    if (jiraUrl && jiraUrl.startsWith('http') && byJiraUrl[jiraUrl] !== undefined) {
-      idx = byJiraUrl[jiraUrl]; matchedBy = 'JIRA';
-    } else if (byNotionId[page.id] !== undefined) {
-      idx = byNotionId[page.id]; matchedBy = 'NotionID';
-    } else if (byReq[req] !== undefined) {
-      idx = byReq[req]; matchedBy = 'Req';
-    }
-
-    if (idx === null) {
-      unmatchedPages.push(req + ' | ' + jiraUrl);
-    } else {
-      if (!rowHitCount[idx]) rowHitCount[idx] = [];
-      rowHitCount[idx].push(req + ' [' + matchedBy + ']');
-    }
-  });
-
-  // Report double-matched rows
-  Logger.log('\n=== DOUBLE-MATCHED ROWS (same sheet row hit by 2+ Notion pages) ===');
-  var found = false;
-  Object.keys(rowHitCount).forEach(function(idx) {
-    if (rowHitCount[idx].length > 1) {
-      found = true;
-      Logger.log('Row ' + (parseInt(idx)+1) + ' → ' + rowHitCount[idx].join(' | OVERWRITTEN BY → '));
-    }
-  });
-  if (!found) Logger.log('None found.');
-
-  // Report unmatched pages
-  Logger.log('\n=== UNMATCHED (would be appended as new row) ===');
-  if (unmatchedPages.length === 0) Logger.log('None.');
-  unmatchedPages.forEach(function(p) { Logger.log('  ' + p); });
-}
-
 function diagnosePage() { diagnosePage_(); }
 function diagnosePage_() {
   var JIRA_URL = 'https://ujetcs.atlassian.net/browse/CALL-4352'; // ← change if needed
