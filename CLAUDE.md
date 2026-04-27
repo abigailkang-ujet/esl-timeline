@@ -87,8 +87,8 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 
 | File | Status | Description |
 |------|--------|-------------|
-| `webApp.gs` | ✅ Modified locally, redeploy needed | Team resolution, Notion join, error filtering |
-| `index.html` | ✅ Modified locally, redeploy needed | Widget progress (X/Y) + Program Weeks rename + prior: schedule badge, PRD To Do, status pill filter, shortName, task wrap fix, search, Gantt bar click, tooltip size/hover split |
+| `webApp.gs` | ✅ Deployed | Team resolution, Notion join, error filtering |
+| `index.html` | ✅ Deployed | Schedule strip + subtitle polish + Program Weeks Elapsed/Total + widget progress (X/Y) + schedule badge + PRD To Do + status pill filter + shortName + task wrap + search + Gantt bar click + tooltip size/hover split |
 | `syncNotionToSheets.gs` | ✅ Refactored (787 lines, was 933) | Clear+dump strategy, jira_url as PK, `ensureOverallAnchors()` auto-append |
 | `timeline.html` | Backup | Local standalone version |
 | `syncToNotion.gs` | Deferred | Reverse sync (not needed) |
@@ -346,6 +346,6 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - Notion_raw: ~37 data rows, header at row 1, jira_url at col J, Notion_ID at col T
 - Known: Chat Orchestration has 2 Notion pages with same JIRA URL → both rows now appear in Notion_raw (Overall's XLOOKUP picks first match)
 - **Daily auto-sync trigger active** — runs `syncNotionToSheets` (clear+dump + ensureOverallAnchors) every day at 7AM
-- **index.html modified locally (redeploy needed)** — widget progress format (Tasks/P0/PRD → X/Y, Program Weeks rename to calendar span) committed to main on 2026-04-23 + earlier unpushed changes (task name wrap fix, tooltip size reduction, tooltip hover split)
-- webApp.gs redeploy still pending (local changes not yet pushed to Apps Script)
+- **index.html deployed (2026-04-27)** — Schedule strip + subtitle polish + Program Weeks Elapsed/Total + earlier (widget X/Y, schedule badge, PRD To Do, status pill filter, shortName, task wrap, search, Gantt bar click, tooltip size/hover split)
+- **webApp.gs deployed (2026-04-27)** — local + main + live now in sync
 - syncNotionToSheets.gs: deployed and validated — 3 tests passed (manual anchor run, full sync, anchor recreation), Notion_raw row reorder doesn't break Overall
