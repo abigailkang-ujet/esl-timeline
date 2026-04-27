@@ -164,7 +164,7 @@ tpl.timelineData = JSON.stringify(data)
   - **PRD**: X = `prdIsDone(t)` (PM assigned + state `done`), Y = `prdIsRequired(t)` (PM assigned + state ≠ `na`). Label: `PRD Complete / Required`. `-` (N/A) is excluded from the denominator.
   - **Past Ideal Date**: unchanged count card (`warn` class when > 0).
   - **Teams**: count of `TEAM_ORDER` entries with at least one task.
-  - **Program Weeks**: calendar weeks of the program (earliest task `start` to latest task `end`, `Math.ceil(span/7d)`). Renders `—` when no valid dates. Replaces the former "Total Dev Weeks" effort sum.
+  - **Program Weeks**: `X / Y` format — X = weeks elapsed (`Math.floor((today - earliest start) / 7d)`, capped at total), Y = total weeks (`Math.ceil((latest end - earliest start) / 7d)`). Label: `Weeks Elapsed / Total`. Renders `—` when no valid dates.
   - **Empty category** (Y = 0) adds `is-empty` class → 50% opacity on the whole card.
   - PRD Alert (banner below): counts missing + todo + draft + review (done/na excluded). Unrelated to the PRD summary card.
   - Helpers live next to `getPrdState()`: `isClosed`, `prdIsDone`, `prdIsRequired`, `programSpanWeeks`.

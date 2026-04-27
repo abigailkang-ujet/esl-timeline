@@ -598,7 +598,6 @@ function buildSummary() {
   }).length;
 
   const progWeeks = programSpanWeeks();
-  const progWeeksDisplay = (progWeeks === null) ? '—' : String(progWeeks);
 
   // helper for "X / Y" number markup
   function xy(doneN, totalN, doneColor) {
@@ -616,7 +615,7 @@ function buildSummary() {
     '<div class="summary-card ' + (atRisk>0?'warn':'') + '"><div class="number">' + atRisk + '</div><div class="label">Past Ideal Date</div></div>' +
     '<div class="summary-card' + emptyCls(prdRequired) + '"><div class="number">' + xy(prdDone, prdRequired) + '</div><div class="label">PRD Complete / Required</div></div>' +
     '<div class="summary-card"><div class="number">' + teamsCount + '</div><div class="label">Teams</div></div>' +
-    '<div class="summary-card"><div class="number">' + progWeeksDisplay + '</div><div class="label">Program Weeks</div></div>';
+    '<div class="summary-card"><div class="number">' + (progWeeks ? xy(progWeeks.elapsed, progWeeks.total) : '—') + '</div><div class="label">Weeks Elapsed / Total</div></div>';
   wrap.appendChild(row1);
 
   // ── Status strip (compact inline, below Row 1) ──
@@ -1093,9 +1092,13 @@ function programSpanWeeks() {
     if (e) ends.push(e.getTime());
   }
   if (!starts.length || !ends.length) return null;
-  var span = Math.max.apply(null, ends) - Math.min.apply(null, starts);
-  if (span <= 0) return 1;
-  return Math.ceil(span / (7 * 24 * 60 * 60 * 1000));
+  var earliest = Math.min.apply(null, starts);
+  var latest   = Math.max.apply(null, ends);
+  var total = Math.ceil((latest - earliest) / (7 * 24 * 60 * 60 * 1000));
+  if (total <= 0) total = 1;
+  var elapsed = Math.max(0, Math.floor((Date.now() - earliest) / (7 * 24 * 60 * 60 * 1000)));
+  if (elapsed > total) elapsed = total;
+  return { elapsed: elapsed, total: total };
 }
 
 function buildScheduleBadge(t) {
