@@ -307,7 +307,7 @@
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px">
   <div>
     <h1 style="margin-bottom:3px">ESL - Project Timeline</h1>
-    <p class="subtitle" style="margin-bottom:0">Gantt chart view — data live from Google Sheets</p>
+    <p class="subtitle" style="margin-bottom:0;font-size:12px;opacity:0.7">Gantt chart view &middot; data live from Google Sheets &amp; Notion</p>
   </div>
   <button class="theme-btn" id="theme-toggle" onclick="toggleTheme()">Light Mode</button>
 </div>
@@ -362,7 +362,8 @@ let ALL_TASKS = [];
 let activeTeam    = 'ALL';
 let hiddenCols    = new Set();
 let activePM      = 'ALL';
-let activeStatus  = 'ALL';
+let activeStatus   = 'ALL';
+let activeSchedule = 'ALL';
 let searchQuery   = '';
 let showDeps      = false;
 let activeSort    = 'default'; // 'default' | 'start' | 'end' | 'ideal'
@@ -553,9 +554,10 @@ function renderTimeline() {
   if (!wrap) return;
   const sq = searchQuery.trim().toLowerCase();
   const filtered = ALL_TASKS.filter(function(t) {
-    return (activeTeam   === 'ALL' || getTeamKey(t.team) === activeTeam) &&
-           (activePM     === 'ALL' || matchesPM(t.pm, activePM)) &&
-           (activeStatus === 'ALL' || t.status === activeStatus) &&
+    return (activeTeam     === 'ALL' || getTeamKey(t.team) === activeTeam) &&
+           (activePM       === 'ALL' || matchesPM(t.pm, activePM)) &&
+           (activeStatus   === 'ALL' || t.status === activeStatus) &&
+           (activeSchedule === 'ALL' || getScheduleStatus(t) === activeSchedule) &&
            (!sq || (t.task||'').toLowerCase().includes(sq) || (t.epic||'').toLowerCase().includes(sq));
   });
   wrap.innerHTML = '';
@@ -655,6 +657,46 @@ function buildSummary() {
       strip.appendChild(item);
     });
     wrap.appendChild(strip);
+  }
+
+  // ── Schedule strip (compact inline, below Status strip) ──
+  const scheduleCounts = {};
+  ALL_TASKS.forEach(function(t) {
+    var sched = getScheduleStatus(t);
+    scheduleCounts[sched] = (scheduleCounts[sched] || 0) + 1;
+  });
+  const scheduleKeys = Object.keys(scheduleCounts);
+  if (scheduleKeys.length > 0) {
+    const SCHEDULE_ORDER = ['On Track', 'Behind', 'Ahead', '—'];
+    scheduleKeys.sort(function(a, b) {
+      var ai = SCHEDULE_ORDER.indexOf(a), bi = SCHEDULE_ORDER.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1; if (bi === -1) return -1;
+      return ai - bi;
+    });
+    const sStrip = document.createElement('div');
+    sStrip.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center;';
+    const sLabel = document.createElement('span');
+    sLabel.style.cssText = 'font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.07em;font-weight:600;margin-right:4px;';
+    sLabel.textContent = 'Schedule';
+    sStrip.appendChild(sLabel);
+    scheduleKeys.forEach(function(s) {
+      const item = document.createElement('span');
+      var isActive = activeSchedule === s;
+      item.style.cssText = 'display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:6px;cursor:pointer;transition:box-shadow 0.1s;' +
+        (isActive
+          ? 'background:' + scheduleColor(s) + '22;border:1.5px solid ' + scheduleColor(s) + ';'
+          : 'background:var(--bg-elevated);border:1px solid var(--border);');
+      item.innerHTML = '<span style="font-size:16px;font-weight:700;color:' + scheduleColor(s) + ';line-height:1">' + scheduleCounts[s] + '</span>' +
+        '<span style="font-size:11px;color:var(--text-secondary)">' + s + '</span>';
+      item.title = isActive ? 'Click to clear filter' : 'Filter by ' + s;
+      item.addEventListener('click', function() {
+        activeSchedule = (activeSchedule === s) ? 'ALL' : s;
+        renderAll(null);
+      });
+      sStrip.appendChild(item);
+    });
+    wrap.appendChild(sStrip);
   }
 
   wrap.style.marginBottom = '22px';
@@ -1101,30 +1143,39 @@ function programSpanWeeks() {
   return { elapsed: elapsed, total: total };
 }
 
-function buildScheduleBadge(t) {
+function getScheduleStatus(t) {
   if (!t.notionEnd) {
-    if (t.notionStart) {
-      // Task has started but no end date yet — in progress, on track
-      return '<span class="schedule-badge schedule-on-track">On Track</span>';
-    }
-    // Task hasn't started — flag Behind if planned start date has already passed
+    if (t.notionStart) return 'On Track';
     if (t.start) {
       var startDate = parseDate(t.start);
       var today = new Date(); today.setHours(0,0,0,0);
-      if (startDate && startDate < today) {
-        return '<span class="schedule-badge schedule-behind">Behind</span>';
-      }
+      if (startDate && startDate < today) return 'Behind';
     }
-    return '<span style="color:var(--text-muted)">—</span>';
+    return '—';
   }
-  if (!t.end) return '<span style="color:var(--text-muted)">—</span>';
+  if (!t.end) return '—';
   var projDate = parseDate(t.notionEnd);
   var baseDate = parseDate(t.end);
-  if (!projDate || !baseDate) return '<span style="color:var(--text-muted)">—</span>';
+  if (!projDate || !baseDate) return '—';
   var diff = Math.round((projDate - baseDate) / DAY_MS);
-  if (diff > 3)  return '<span class="schedule-badge schedule-behind">Behind</span>';
-  if (diff < -3) return '<span class="schedule-badge schedule-ahead">Ahead</span>';
-  return '<span class="schedule-badge schedule-on-track">On Track</span>';
+  if (diff > 3)  return 'Behind';
+  if (diff < -3) return 'Ahead';
+  return 'On Track';
+}
+
+function buildScheduleBadge(t) {
+  var s = getScheduleStatus(t);
+  if (s === 'Behind')   return '<span class="schedule-badge schedule-behind">Behind</span>';
+  if (s === 'Ahead')    return '<span class="schedule-badge schedule-ahead">Ahead</span>';
+  if (s === 'On Track') return '<span class="schedule-badge schedule-on-track">On Track</span>';
+  return '<span style="color:var(--text-muted)">—</span>';
+}
+
+function scheduleColor(s) {
+  if (s === 'Behind')   return 'var(--red)';
+  if (s === 'Ahead')    return 'var(--blue)';
+  if (s === 'On Track') return 'var(--green)';
+  return '#94a3b8';
 }
 
 // "Youngjeong Yu" → "Youngjeong Y."
