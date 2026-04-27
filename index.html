@@ -77,10 +77,16 @@
   /* ── Summary cards ── */
   .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 22px; }
   .summary-card {
-    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
     padding: 16px 14px; text-align: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    transition: border-color 0.15s ease, transform 0.15s ease;
   }
+  .summary-card:hover { border-color: rgba(255, 255, 255, 0.16); }
   .summary-card .number {
     font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; line-height: 1;
   }
@@ -91,6 +97,9 @@
     font-size: 0.6em; color: var(--text-muted); font-weight: normal; letter-spacing: normal;
   }
   .summary-card.is-empty { opacity: 0.5; }
+  /* Status / Schedule strip pills — clickable hover affordance */
+  .strip-pill { transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease; }
+  .strip-pill:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18); filter: brightness(1.12); }
 
   /* ── PRD Alert banner ── */
   .prd-alert {
@@ -101,6 +110,49 @@
   .prd-alert.show { display: block; }
   .prd-alert-title { color: var(--amber); font-weight: 700; font-size: 13px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
   .prd-alert-items { font-size: 13px; color: var(--amber); line-height: 2; opacity: 0.85; }
+
+  /* PRD Needed — collapsible PM cards */
+  .prd-pm-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .prd-pm-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 8px 12px;
+    transition: border-color 0.15s ease;
+  }
+  .prd-pm-card:hover { border-color: rgba(255, 255, 255, 0.16); }
+  .prd-pm-header {
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; user-select: none;
+  }
+  .prd-pm-toggle {
+    font-size: 9px; color: var(--text-muted);
+    transition: transform 0.15s ease;
+    width: 10px; display: inline-block;
+  }
+  .prd-pm-card.collapsed .prd-pm-toggle { transform: rotate(-90deg); }
+  .prd-pm-card.collapsed .prd-pm-items { display: none; }
+  .prd-pm-name { font-weight: 600; color: var(--text-primary); font-size: 13px; }
+  .prd-pm-count {
+    font-size: 11px; color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.08);
+    padding: 1px 7px; border-radius: 9px;
+    margin-left: auto;
+  }
+  .prd-pm-items {
+    margin: 6px 0 2px 22px; padding: 0;
+    font-size: 12px; line-height: 1.7;
+    color: var(--text-secondary);
+    list-style: decimal;
+  }
+  .prd-pm-items li { padding: 2px 0; }
+  .prd-pm-items li::marker { color: var(--text-muted); font-size: 11px; }
+  .prd-task-key { color: var(--text-muted); font-family: ui-monospace, monospace; font-size: 11px; margin-right: 4px; }
+  .prd-task-state {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px; margin: 0 4px;
+    font-weight: 600; border: 1px solid transparent; vertical-align: 1px;
+  }
+  .prd-task-urgency { font-size: 11px; margin-left: 4px; }
 
   /* ── Timeline table ── */
   .timeline-container {
@@ -164,9 +216,21 @@
   .pri-P2 { color: var(--blue);  background: var(--blue-bg);  border-color: rgba(91,138,245,0.2); }
   .pri-Low, .pri-default { color: var(--text-muted); background: rgba(255,255,255,0.04); border-color: var(--border); }
 
-  .risk-Low    { color: var(--green); }
-  .risk-Medium { color: var(--amber); }
-  .risk-High   { color: var(--red); }
+  .risk-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 4px;
+    font-size: 11px; font-weight: 700; line-height: 1.4;
+    border: 1px solid transparent; min-width: 18px; text-align: center;
+    transition: padding 0.12s ease;
+    cursor: default;
+  }
+  .risk-badge .risk-word { display: none; }
+  .risk-badge:hover .risk-letter { display: none; }
+  .risk-badge:hover .risk-word { display: inline; }
+  .risk-badge:hover { padding: 2px 9px; }
+  .risk-Low    { color: var(--green); background: var(--green-bg); border-color: rgba(76,175,130,0.25); }
+  .risk-Medium { color: var(--amber); background: var(--amber-bg); border-color: rgba(229,164,75,0.25); }
+  .risk-High   { color: var(--red);   background: var(--red-bg);   border-color: rgba(244,112,103,0.25); }
+  .risk-none   { color: var(--text-muted); }
 
   .date-cell { color: var(--text-secondary); font-size: 13px; font-variant-numeric: tabular-nums; }
   .at-risk td.info-col { background: rgba(244,112,103,0.04) !important; }
@@ -283,7 +347,13 @@
   body.light-mode .task-row:hover td.info-col { background: #dde1f0; }
   body.light-mode .task-row:hover td.gantt-col { background: #dde1f0; }
   body.light-mode .timeline-container { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-  body.light-mode .summary-card { box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+  body.light-mode .summary-card {
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+  body.light-mode .summary-card:hover { border-color: rgba(0, 0, 0, 0.12); }
+  body.light-mode .strip-pill:hover { box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08); }
   body.light-mode .theme-btn:hover { border-color: rgba(0,0,0,0.25); }
   body.light-mode .grid-line-minor { background: rgba(0,0,0,0.05); }
   body.light-mode .grid-line-major { background: rgba(0,0,0,0.11); }
@@ -299,6 +369,17 @@
   }
   body.light-mode .prd-alert-title { color: #c2410c; }
   body.light-mode .prd-alert-items { color: #92400e; opacity: 1; }
+  body.light-mode .prd-pm-card {
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+  }
+  body.light-mode .prd-pm-card:hover { border-color: rgba(0, 0, 0, 0.12); }
+  body.light-mode .prd-pm-name { color: #1e293b; }
+  body.light-mode .prd-pm-items { color: #475569; }
+  body.light-mode .prd-pm-count {
+    background: rgba(0, 0, 0, 0.05);
+    color: #64748b;
+  }
 </style>
 </head>
 <body>
@@ -642,8 +723,9 @@ function buildSummary() {
     strip.appendChild(stripLabel);
     statuses.forEach(function(s) {
       const item = document.createElement('span');
+      item.className = 'strip-pill';
       var isActive = activeStatus === s;
-      item.style.cssText = 'display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:6px;cursor:pointer;transition:box-shadow 0.1s;' +
+      item.style.cssText = 'display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:6px;cursor:pointer;' +
         (isActive
           ? 'background:' + statusColor(s) + '22;border:1.5px solid ' + statusColor(s) + ';'
           : 'background:var(--bg-elevated);border:1px solid var(--border);');
@@ -682,8 +764,9 @@ function buildSummary() {
     sStrip.appendChild(sLabel);
     scheduleKeys.forEach(function(s) {
       const item = document.createElement('span');
+      item.className = 'strip-pill';
       var isActive = activeSchedule === s;
-      item.style.cssText = 'display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:6px;cursor:pointer;transition:box-shadow 0.1s;' +
+      item.style.cssText = 'display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:6px;cursor:pointer;' +
         (isActive
           ? 'background:' + scheduleColor(s) + '22;border:1.5px solid ' + scheduleColor(s) + ';'
           : 'background:var(--bg-elevated);border:1px solid var(--border);');
@@ -718,59 +801,95 @@ function buildPrdAlert() {
   const today = new Date(); today.setHours(0,0,0,0);
   const cutoff = new Date(today.getTime() + 21 * DAY_MS);
 
-  const overdue = ALL_TASKS.filter(function(t) {
+  // Collect overdue + upcoming items into a single list
+  const items = [];
+  ALL_TASKS.forEach(function(t) {
     var state = getPrdState(t.prd);
-    if (state === 'na' || state === 'done') return false;
+    if (state === 'na' || state === 'done') return;
     const s = parseDate(t.start);
-    return s && s < today;
-  });
-  const upcoming = ALL_TASKS.filter(function(t) {
-    var state = getPrdState(t.prd);
-    if (state === 'na' || state === 'done') return false;
-    const s = parseDate(t.start);
-    return s && s >= today && s <= cutoff;
+    if (!s) return;
+    if (s < today) {
+      items.push({ task: t, state: state, urgency: 'overdue', days: businessDaysBetween(s, today) });
+    } else if (s <= cutoff) {
+      items.push({ task: t, state: state, urgency: 'upcoming', days: businessDaysBetween(today, s) });
+    }
   });
 
-  const total = overdue.length + upcoming.length;
   const div = document.createElement('div');
-  div.className = 'prd-alert' + (total > 0 ? ' show' : '');
+  div.className = 'prd-alert' + (items.length > 0 ? ' show' : '');
+  if (items.length === 0) return div;
 
-  if (total > 0) {
-    var html = '<div class="prd-alert-title">PRD needed — ' + total + ' task' + (total > 1 ? 's' : '') + '</div>';
+  // Group items by PM (first PM if comma-separated, "— Unassigned —" if blank)
+  const byPm = {};
+  items.forEach(function(it) {
+    var pmKey = it.task.pm ? it.task.pm.split(',')[0].trim() : '— Unassigned —';
+    if (!pmKey) pmKey = '— Unassigned —';
+    if (!byPm[pmKey]) byPm[pmKey] = [];
+    byPm[pmKey].push(it);
+  });
 
-    if (overdue.length > 0) {
-      html += '<div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">' +
-        'Already started (' + overdue.length + ')</div>';
-      html += '<div class="prd-alert-items" style="opacity:1">' +
-        overdue.map(function(t) {
-          const s = parseDate(t.start);
-          var days = businessDaysBetween(s, today);
-          var state = getPrdState(t.prd);
-          var stateLabel = state === 'draft' ? 'Draft' : state === 'review' ? 'Review' : state === 'todo' ? 'To Do' : 'Missing';
-          var stateColor = state === 'missing' ? 'var(--red)' : state === 'draft' ? 'var(--amber)' : 'var(--blue)';
-          return '<span style="color:' + stateColor + '">• [' + t.epic + '] ' + t.task +
-            ' — started ' + days + ' business day' + (days !== 1 ? 's' : '') + ' ago' +
-            ' — PRD: ' + stateLabel +
-            (t.pm ? ' — PM: ' + t.pm : '') + '</span>';
-        }).join('<br>') + '</div>';
-    }
+  // Sort items inside each PM: overdue first (most-slipped first), then upcoming (soonest first)
+  Object.keys(byPm).forEach(function(pm) {
+    byPm[pm].sort(function(a, b) {
+      if (a.urgency !== b.urgency) return a.urgency === 'overdue' ? -1 : 1;
+      if (a.urgency === 'overdue') return b.days - a.days;
+      return a.days - b.days;
+    });
+  });
 
-    if (upcoming.length > 0) {
-      if (overdue.length > 0) html += '<div style="height:8px"></div>';
-      html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">' +
-        'Starting within 3 weeks (' + upcoming.length + ')</div>';
-      html += '<div class="prd-alert-items">' +
-        upcoming.map(function(t) {
-          const s = parseDate(t.start);
-          var days = businessDaysBetween(today, s);
-          return '• [' + t.epic + '] ' + t.task +
-            ' — starts in ' + days + ' business day' + (days !== 1 ? 's' : '') +
-            (t.pm ? ' — PM: ' + t.pm : '');
-        }).join('<br>') + '</div>';
-    }
+  // Sort PMs: most items first, then alphabetical, "Unassigned" last
+  const pmKeys = Object.keys(byPm).sort(function(a, b) {
+    var aIsUnassigned = a.startsWith('—');
+    var bIsUnassigned = b.startsWith('—');
+    if (aIsUnassigned !== bIsUnassigned) return aIsUnassigned ? 1 : -1;
+    if (byPm[b].length !== byPm[a].length) return byPm[b].length - byPm[a].length;
+    return a.localeCompare(b);
+  });
 
-    div.innerHTML = html;
-  }
+  // Build markup
+  var html = '<div class="prd-alert-title">PRD needed — ' + items.length + ' task' + (items.length !== 1 ? 's' : '') + '</div>';
+  html += '<div class="prd-pm-list">';
+  pmKeys.forEach(function(pm) {
+    var pmItems = byPm[pm];
+    var displayName = pm.startsWith('—') ? pm : pm.split(/\s+/).slice(0, 2).join(' ');
+    html += '<div class="prd-pm-card">' +
+      '<div class="prd-pm-header">' +
+        '<span class="prd-pm-toggle">▼</span>' +
+        '<span class="prd-pm-name">' + displayName + '</span>' +
+        '<span class="prd-pm-count">' + pmItems.length + '</span>' +
+      '</div>' +
+      '<ol class="prd-pm-items">';
+    pmItems.forEach(function(it) {
+      var t = it.task;
+      var stateLabel = it.state === 'draft' ? 'Draft' : it.state === 'review' ? 'Rev' : it.state === 'todo' ? 'To Do' : 'N';
+      var stateClass = 'prd-' + it.state;
+      var urgencyText = it.urgency === 'overdue'
+        ? 'started ' + it.days + 'd ago'
+        : 'starts in ' + it.days + 'd';
+      var urgencyColor = it.urgency === 'overdue' ? 'var(--red)' : 'var(--amber)';
+      var keyMarkup = t.epicUrl
+        ? '<a href="' + t.epicUrl + '" target="_blank" class="prd-task-key">[' + (t.epic || '') + ']</a>'
+        : '<span class="prd-task-key">[' + (t.epic || '') + ']</span>';
+      html += '<li>' +
+        keyMarkup + ' ' +
+        t.task +
+        ' <span class="prd-task-state prd-badge ' + stateClass + '">' + stateLabel + '</span>' +
+        '<span class="prd-task-urgency" style="color:' + urgencyColor + '">' + urgencyText + '</span>' +
+        '</li>';
+    });
+    html += '</ol></div>';
+  });
+  html += '</div>';
+
+  div.innerHTML = html;
+
+  // Wire collapse toggle on each PM card header
+  div.querySelectorAll('.prd-pm-header').forEach(function(h) {
+    h.addEventListener('click', function() {
+      h.parentElement.classList.toggle('collapsed');
+    });
+  });
+
   return div;
 }
 
@@ -935,7 +1054,7 @@ function buildTimeline(tasks, teamFilter) {
       '<td class="info-col date-cell" data-col="lead" title="' + (t.lead||'') + '">' + leadDisplay + '</td>' +
       '<td class="info-col date-cell" data-col="pm" title="' + pmFull + '">' + pmDisplay + '</td>' +
       '<td class="info-col" data-col="prd">' + prdBadge + '</td>' +
-      '<td class="info-col" data-col="risk"><span class="risk-' + (t.risk||'') + '">' + (t.risk||'-') + '</span></td>' +
+      '<td class="info-col" data-col="risk">' + buildRiskBadge(t.risk) + '</td>' +
       '<td class="info-col date-cell" data-col="start">' + fmtShort(sd) + '</td>' +
       '<td class="info-col date-cell" data-col="end">' + fmtShort(ed) + '</td>' +
       '<td class="info-col date-cell" data-col="ideal"' + (isAtRisk?' style="color:#fca5a5;font-weight:600"':'') + '>' + fmtShort(id) + '</td>' +
@@ -1176,6 +1295,19 @@ function scheduleColor(s) {
   if (s === 'Ahead')    return 'var(--blue)';
   if (s === 'On Track') return 'var(--green)';
   return '#94a3b8';
+}
+
+function buildRiskBadge(risk) {
+  if (!risk) return '<span class="risk-none">-</span>';
+  var r = String(risk).trim();
+  var letter = r.charAt(0).toUpperCase();
+  if (r === 'High' || r === 'Medium' || r === 'Low') {
+    return '<span class="risk-badge risk-' + r + '">' +
+      '<span class="risk-letter">' + letter + '</span>' +
+      '<span class="risk-word">' + r + '</span>' +
+      '</span>';
+  }
+  return '<span class="risk-none" title="' + r + '">' + r + '</span>';
 }
 
 // "Youngjeong Yu" → "Youngjeong Y."
