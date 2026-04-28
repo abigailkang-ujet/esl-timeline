@@ -88,7 +88,7 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 | File | Status | Description |
 |------|--------|-------------|
 | `webApp.gs` | ✅ Deployed | Team resolution, Notion join, error filtering |
-| `index.html` | ✅ Deployed | Schedule strip + subtitle polish + Program Weeks Elapsed/Total + widget progress (X/Y) + schedule badge + PRD To Do + status pill filter + shortName + task wrap + search + Gantt bar click + tooltip size/hover split |
+| `index.html` | ✅ Deployed (2026-04-27 evening) | Glass cards + pill hover + PRD PM-grouped collapsible cards + Risk H/M/L chips + Schedule strip + subtitle polish + Program Weeks Elapsed/Total + earlier (widget X/Y, schedule badge, PRD To Do, status pill filter, shortName, task wrap, search, Gantt bar click, tooltip size/hover split) |
 | `syncNotionToSheets.gs` | ✅ Refactored (787 lines, was 933) | Clear+dump strategy, jira_url as PK, `ensureOverallAnchors()` auto-append |
 | `timeline.html` | Backup | Local standalone version |
 | `syncToNotion.gs` | Deferred | Reverse sync (not needed) |
@@ -147,7 +147,7 @@ tpl.timelineData = JSON.stringify(data)
 
 ---
 
-## index.html Feature List (updated 2026-04-22+)
+## index.html Feature List (updated 2026-04-27+)
 
 ### UI / Theme
 - **Dark/light mode**: toggle button top-right, saved to localStorage (`esl-theme`)
@@ -155,6 +155,8 @@ tpl.timelineData = JSON.stringify(data)
 - **CSS Variables**: `:root` + `body.light-mode` override
 - **Row background**: task rows `--bg-elevated`, team headers `--bg-card` (light mode: reversed — task rows `--bg-card`, team headers `--bg-elevated`)
 - **Gantt bar**: height 10px, border-radius 10px, opacity 0.8
+- **Glassmorphism (2026-04-27)**: `.summary-card` and `.prd-pm-card` use `rgba(255,255,255,0.04)` bg + `backdrop-filter: blur(14px) saturate(140%)` + subtle inset highlight + thin translucent border. Border brightens on hover. Light mode uses `rgba(255,255,255,0.55)` bg + soft shadow.
+- **Header subtitle (2026-04-27)**: 12px / opacity 0.7 / middle dot separator → `Gantt chart view · data live from Google Sheets & Notion`
 
 ### Summary Cards (buildSummary)
 - **Row 1** (6 cards, in order): Tasks, P0, Past Ideal Date, PRD, Teams, Program Weeks
@@ -174,6 +176,19 @@ tpl.timelineData = JSON.stringify(data)
   - **Clickable**: clicking a pill sets `activeStatus` and calls `renderAll(null)` to filter timeline
   - Active pill: colored border + tinted background highlight
   - Click same pill again → deselects (back to ALL)
+- **Schedule strip (2026-04-27)** (below Status strip): same pattern, filter by Schedule status
+  - SCHEDULE_ORDER: `['On Track', 'Behind', 'Ahead', '—']`
+  - Variable: `activeSchedule` (parallel to `activeStatus`); AND-combined in `renderTimeline()` filter
+  - Helpers: `getScheduleStatus(t)` (extracted from `buildScheduleBadge`), `scheduleColor(s)`
+  - Colors: On Track green, Behind red, Ahead blue, — grey
+- **Pill hover affordance (2026-04-27)**: both Status and Schedule pills get `.strip-pill` class with `:hover` → `translateY(-1px)` + box-shadow + `filter: brightness(1.12)` to signal clickability
+
+### Risk Badge (column, 2026-04-27)
+- `Low/Medium/High` in Realistic Scenario → rendered as single-letter color chip via `buildRiskBadge(risk)`
+  - L (green), M (amber), H (red) — uses `.risk-badge` + `.risk-Low/Medium/High` CSS
+  - Hover: chip's `.risk-letter` swaps with `.risk-word` via CSS, padding animates 2→9px → shows full word "Low / Medium / High" inline
+  - Empty / unknown values → rendered as plain `-` (`.risk-none`)
+- Hover behavior is CSS-only (no JS, no browser tooltip delay)
 
 ### PRD States (`getPrdState` function)
 | Value | State | Badge | In PRD Alert? | In PRD card **X** (done) | In PRD card **Y** (required) |
@@ -187,12 +202,19 @@ tpl.timelineData = JSON.stringify(data)
 
 Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a PM are not counted.
 
-### PRD Alert Banner
-- **Already started** section: tasks past start date with PRD not done — badge colors vary by state (red/amber/blue)
-- **Starting within 3 weeks** section: upcoming tasks with PRD not done — amber
+### PRD Alert Banner (rewritten 2026-04-27)
+- **Layout**: per-PM collapsible cards (`.prd-pm-card`) — header click toggles `.collapsed` class
+  - Header: `▼` toggle + PM first/last name + count chip (right-aligned)
+  - Body: `<ol>` with items numbered 1, 2, 3
+- **Item rendering** per task:
+  - `[JIRA-KEY]` (clickable, opens Jira in new tab if `t.epicUrl` exists)
+  - Task name
+  - PRD state badge (reuses existing `.prd-badge` + `.prd-missing/.prd-draft/.prd-review/.prd-todo`)
+  - Urgency text (red `started Xd ago` for overdue / amber `starts in Xd` for upcoming, ≤21 business days)
+- **PM order**: most items first → alphabetical → "— Unassigned —" last
+- **Item order inside PM**: overdue first (most-slipped first), then upcoming (soonest first)
 - Date calc: `businessDaysBetween(from, to)` (weekends excluded)
-- Dark mode: amber tones, left 3px border (callout style)
-- Light mode: orange tones (`#c2410c` title, `#92400e` items) — CSS override
+- Default state: all PMs expanded; user can collapse individually
 
 ### Legend + Timestamp
 - Legend: 12px, text-secondary, 8px dot
@@ -202,6 +224,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Team**: buttons (based on TEAM_ORDER)
 - **PM**: `<select>` dropdown (not buttons)
 - **Status**: `activeStatus` variable — set by clicking Status strip pills
+- **Schedule (2026-04-27)**: `activeSchedule` variable — set by clicking Schedule strip pills
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
 - Filter logic: all four filters combined with AND in `renderTimeline()`
@@ -346,6 +369,6 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - Notion_raw: ~37 data rows, header at row 1, jira_url at col J, Notion_ID at col T
 - Known: Chat Orchestration has 2 Notion pages with same JIRA URL → both rows now appear in Notion_raw (Overall's XLOOKUP picks first match)
 - **Daily auto-sync trigger active** — runs `syncNotionToSheets` (clear+dump + ensureOverallAnchors) every day at 7AM
-- **index.html deployed (2026-04-27)** — Schedule strip + subtitle polish + Program Weeks Elapsed/Total + earlier (widget X/Y, schedule badge, PRD To Do, status pill filter, shortName, task wrap, search, Gantt bar click, tooltip size/hover split)
+- **index.html deployed (2026-04-27 evening)** — UI polish round: glass cards (backdrop-filter blur), Status/Schedule pill hover affordance, PRD Needed regrouped into collapsible per-PM cards (numbered items, Jira-clickable keys), Risk column rendered as H/M/L color chips that expand to full word on hover, header subtitle shrunk + "& Notion" added. Earlier today: Schedule strip, Program Weeks Elapsed/Total, widget X/Y format.
 - **webApp.gs deployed (2026-04-27)** — local + main + live now in sync
 - syncNotionToSheets.gs: deployed and validated — 3 tests passed (manual anchor run, full sync, anchor recreation), Notion_raw row reorder doesn't break Overall
