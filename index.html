@@ -169,6 +169,7 @@
     border-bottom: 2px solid var(--border-mid); white-space: nowrap;
     background: var(--bg-card); position: sticky; top: 0; z-index: 6;
   }
+  .hdr-pre { display: block; font-size: 9px; line-height: 1; opacity: 0.55; font-weight: 500; letter-spacing: 0.05em; margin-bottom: 2px; }
   table.timeline thead tr th:first-child { border-top-left-radius: 12px; }
   table.timeline td.info-col {
     padding: 0 10px; font-size: 14px; border-bottom: 1px solid var(--border);
@@ -990,9 +991,9 @@ function buildTimeline(tasks, teamFilter) {
     '<th class="info-col" data-col="pm" style="width:90px" title="Click to hide">PM' + tip('PM owner \u2014 from Notion DB') + '</th>' +
     '<th class="info-col" data-col="prd" style="width:50px" title="Click to hide">PRD' + tip('PRD status from Notion: \u2713=done, Draft, Rev=In Review, N=missing, \u2212=N/A') + '</th>' +
     '<th class="info-col" data-col="risk" style="width:50px" title="Click to hide">Risk' + tip('Risk factor \u2014 from Realistic Scenario sheet (Low / Medium / High)') + '</th>' +
-    '<th class="info-col" data-col="start" style="width:60px" title="Click to hide">Plan Start' + tip('Planned start date \u2014 from Realistic Scenario sheet') + '</th>' +
-    '<th class="info-col" data-col="end" style="width:60px" title="Click to hide">Plan End' + tip('Planned end date \u2014 from Realistic Scenario sheet') + '</th>' +
-    (showActual ? '<th class="info-col" data-col="actStart" style="width:60px">Act Start' + tip('Actual start date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not started yet.') + '</th><th class="info-col" data-col="actEnd" style="width:60px">Act End' + tip('Actual end date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not finished yet.') + '</th>' : '') +
+    '<th class="info-col" data-col="start" style="width:55px" title="Click to hide"><span class="hdr-pre">Plan</span>Start' + tip('Planned start date \u2014 from Realistic Scenario sheet') + '</th>' +
+    '<th class="info-col" data-col="end" style="width:55px" title="Click to hide"><span class="hdr-pre">Plan</span>End' + tip('Planned end date \u2014 from Realistic Scenario sheet') + '</th>' +
+    (showActual ? '<th class="info-col" data-col="actStart" style="width:55px"><span class="hdr-pre">Act</span>Start' + tip('Actual start date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not started yet.') + '</th><th class="info-col" data-col="actEnd" style="width:55px"><span class="hdr-pre">Act</span>End' + tip('Actual end date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not finished yet.') + '</th>' : '') +
     '<th class="info-col" data-col="ideal" style="width:55px" title="Click to hide">Ideal' + tip('Target delivery per SOW \u2014 from Realistic Scenario sheet') + '</th>' +
     '<th class="info-col" data-col="schedule" style="width:82px" title="Click to hide">Schedule' + tip('Behind / On Track / Ahead \u2014 based on Jira actual dates (synced via Notion). If started: compares actual end vs planned end (\u00b13 day tolerance). If not started: Behind when planned start date has passed.') + '</th>' +
     (showExtra ? '<th class="info-col" data-col="alloc" style="width:90px" title="Click to hide">Alloc' + tip('Team allocation % \u2014 from Realistic Scenario sheet') + '</th><th class="info-col" data-col="status" style="width:90px" title="Click to hide">Status' + tip('Task status from Notion (To Do / In Progress / Closed \u2026)') + '</th>' : '') +
