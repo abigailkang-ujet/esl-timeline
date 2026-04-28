@@ -228,6 +228,11 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
 - **Show Actual (2026-04-28)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.notionStart` / `t.notionEnd` (Jira via Notion).
+
+### What's-new tour overlay (2026-04-28)
+- `?` button in top-right (next to theme toggle) opens a coachmark overlay with 6 callouts pointing at recent features: Progress widgets, Schedule filter strip, PRD by PM cards, Risk chips, Show Actual toggle, Plan vs Actual columns.
+- Auto-shown on first visit; persisted via localStorage key `esl-tour-seen`. `?` button re-opens any time.
+- Implementation: `TOUR_STEPS` array → `runTour()` builds a fixed overlay (dim layer + SVG arrows + absolute-positioned label divs + Got it button). Positions computed at runtime via `getBoundingClientRect`. Window resize closes the tour (positions go stale).
 - Filter logic: all four filters combined with AND in `renderTimeline()`
 - When a team is selected, Alloc/Status columns are shown (showExtra flag)
 
