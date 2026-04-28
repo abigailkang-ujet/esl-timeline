@@ -171,26 +171,21 @@
   }
   .hdr-pre { display: block; font-size: 9px; line-height: 1; opacity: 0.55; font-weight: 500; letter-spacing: 0.05em; margin-bottom: 2px; }
 
-  /* Tour overlay */
+  /* Tour overlay (sequential walkthrough) */
   #tour-overlay { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
-  #tour-overlay .tour-dim { position: absolute; inset: 0; background: rgba(0,0,0,0.6); pointer-events: auto; cursor: pointer; }
-  body.light-mode #tour-overlay .tour-dim { background: rgba(15,23,42,0.45); }
-  #tour-overlay svg.tour-arrows { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-  #tour-overlay .tour-label {
-    position: absolute; background: rgba(255,255,255,0.97); color: #0f172a;
-    padding: 9px 13px; border-radius: 10px; font-size: 12px; line-height: 1.4;
-    box-shadow: 0 6px 22px rgba(0,0,0,0.5); max-width: 200px; pointer-events: auto;
-    border: 1px solid rgba(255,255,255,0.4);
-  }
-  #tour-overlay .tour-label b { color: #2563eb; display: block; margin-bottom: 2px; font-size: 12.5px; }
-  #tour-overlay .tour-gotit {
-    position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
-    background: #fff; color: #0f172a; padding: 10px 28px; border: none;
-    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
-    pointer-events: auto; box-shadow: 0 6px 18px rgba(0,0,0,0.4);
-    font-family: inherit;
-  }
-  #tour-overlay .tour-gotit:hover { background: #f1f5f9; }
+  #tour-overlay > * { pointer-events: auto; }
+  #tour-overlay .tour-spotlight { position: fixed; border: 2px solid #fbbf24; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.65); pointer-events: none; transition: all 0.25s ease; }
+  body.light-mode #tour-overlay .tour-spotlight { box-shadow: 0 0 0 9999px rgba(15,23,42,0.45); }
+  #tour-overlay .tour-label-seq { position: fixed; background: rgba(255,255,255,0.98); color: #0f172a; border-radius: 12px; padding: 14px 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 13px; line-height: 1.5; z-index: 1002; }
+  #tour-overlay .tour-step-num { font-size: 10px; color: #64748b; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.08em; text-transform: uppercase; }
+  #tour-overlay .tour-title { font-size: 14px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
+  #tour-overlay .tour-desc { font-size: 12.5px; color: #334155; margin-bottom: 12px; line-height: 1.5; }
+  #tour-overlay .tour-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  #tour-overlay .tour-btn-primary { background: #2563eb; color: #fff; border: none; padding: 7px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  #tour-overlay .tour-btn-primary:hover { background: #1d4ed8; }
+  #tour-overlay .tour-btn-secondary { background: transparent; color: #64748b; border: 1px solid #cbd5e1; padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  #tour-overlay .tour-btn-secondary:hover { background: #f1f5f9; }
+  #tour-overlay .tour-skip-btn { position: fixed; top: 20px; right: 20px; background: rgba(255,255,255,0.95); color: #0f172a; padding: 8px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; z-index: 1003; }
   #tour-trigger { font-size: 14px; font-weight: 600; padding: 6px 12px; min-width: 30px; }
   table.timeline thead tr th:first-child { border-top-left-radius: 12px; }
   table.timeline td.info-col {
@@ -1396,115 +1391,135 @@ function toggleShowActual() {
   renderAll(null);
 }
 
-// ── What's-new tour overlay ──────────────────────────────────────
+// ── What's-new tour overlay (sequential walkthrough) ─────────────
 var TOUR_STEPS = [
-  { sel: '.summary-cards', title: 'Progress widgets', desc: 'Top cards now show Complete / Total at a glance.', pos: 'below' },
-  { sel: '#schedule-strip', title: 'Schedule filter', desc: 'Click pills to filter Behind / On Track / Ahead.', pos: 'below' },
-  { sel: '.prd-pm-card', title: 'PRD by PM', desc: 'Tasks needing PRD are grouped by owner. Click the Jira key to open.', pos: 'right' },
-  { sel: 'th[data-col="risk"]', title: 'Risk chips', desc: 'L / M / H color chips. Hover for the full label.', pos: 'above' },
-  { sel: '#actual-toggle', title: 'Show Actual', desc: 'Toggle on to surface actual dates from Jira.', pos: 'above' },
-  { sel: 'th[data-col="start"]', title: 'Plan vs Actual', desc: 'Start/End are now Plan dates. Act columns appear when toggle is on.', pos: 'above' }
+  { sel: '.summary-cards', title: 'Progress widgets', desc: 'Top cards now show Complete / Total at a glance.' },
+  { sel: '#schedule-strip', title: 'Schedule filter', desc: 'Click pills to filter Behind / On Track / Ahead.' },
+  { sel: '.prd-pm-card', title: 'PRD by PM', desc: 'Tasks needing PRD are grouped by owner. Click the Jira key to open in Jira.' },
+  { sel: 'th[data-col="risk"]', title: 'Risk chips', desc: 'L / M / H color chips. Hover any chip for the full Low / Medium / High label.' },
+  { sel: '#actual-toggle', title: 'Show Actual', desc: 'Toggle on to surface actual start/end dates from Jira alongside the planned ones.' },
+  { sel: 'th[data-col="start"]', title: 'Plan vs Actual', desc: 'Start/End columns are now Plan dates. Act Start / Act End appear when Show Actual is on.' }
 ];
+var tourIdx = 0;
+
+function tourKeyHandler(e) {
+  if (e.key === 'Escape') closeTour();
+  else if (e.key === 'ArrowRight' || e.key === 'Enter') tourNext();
+  else if (e.key === 'ArrowLeft') tourPrev();
+}
 
 function closeTour() {
   var existing = document.getElementById('tour-overlay');
   if (existing) existing.parentNode.removeChild(existing);
+  document.body.style.overflow = '';
+  document.removeEventListener('keydown', tourKeyHandler);
   try { localStorage.setItem('esl-tour-seen', '1'); } catch(e) {}
+}
+
+function tourNext() {
+  if (tourIdx < TOUR_STEPS.length - 1) { tourIdx++; renderTourStep(); }
+  else closeTour();
+}
+
+function tourPrev() {
+  if (tourIdx > 0) { tourIdx--; renderTourStep(); }
 }
 
 function runTour() {
   closeTour();
+  tourIdx = 0;
   var overlay = document.createElement('div');
   overlay.id = 'tour-overlay';
-  var dim = document.createElement('div');
-  dim.className = 'tour-dim';
-  dim.onclick = closeTour;
-  overlay.appendChild(dim);
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', tourKeyHandler);
+  renderTourStep();
+}
 
-  var svgNS = 'http://www.w3.org/2000/svg';
-  var svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('class', 'tour-arrows');
-  svg.setAttribute('viewBox', '0 0 ' + window.innerWidth + ' ' + window.innerHeight);
-  svg.setAttribute('preserveAspectRatio', 'none');
-  overlay.appendChild(svg);
+function renderTourStep() {
+  var overlay = document.getElementById('tour-overlay');
+  if (!overlay) return;
+  overlay.innerHTML = '';
 
-  var arrowColor = '#fbbf24';
-  TOUR_STEPS.forEach(function(step) {
-    var target = document.querySelector(step.sel);
-    if (!target) return;
+  var step = TOUR_STEPS[tourIdx];
+  var target = document.querySelector(step.sel);
+
+  // Skip step if target missing or zero-size
+  if (!target) {
+    if (tourIdx < TOUR_STEPS.length - 1) { tourIdx++; return renderTourStep(); }
+    return closeTour();
+  }
+  var preRect = target.getBoundingClientRect();
+  if (preRect.width === 0 && preRect.height === 0) {
+    if (tourIdx < TOUR_STEPS.length - 1) { tourIdx++; return renderTourStep(); }
+    return closeTour();
+  }
+
+  // Allow scroll briefly so scrollIntoView works, then lock
+  document.body.style.overflow = '';
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  setTimeout(function() {
+    document.body.style.overflow = 'hidden';
     var rect = target.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) return;
+
+    // Spotlight outline + dim outside via box-shadow trick
+    var spot = document.createElement('div');
+    spot.className = 'tour-spotlight';
+    spot.style.left = (rect.left - 6) + 'px';
+    spot.style.top = (rect.top - 6) + 'px';
+    spot.style.width = (rect.width + 12) + 'px';
+    spot.style.height = (rect.height + 12) + 'px';
+    overlay.appendChild(spot);
+
+    // Label box — prefer below, else above, clamped to viewport
+    var labelW = 280, labelH = 140;
+    var spaceBelow = window.innerHeight - rect.bottom;
+    var spaceAbove = rect.top;
+    var labelTop;
+    if (spaceBelow >= labelH + 30) {
+      labelTop = rect.bottom + 18;
+    } else if (spaceAbove >= labelH + 30) {
+      labelTop = Math.max(20, rect.top - labelH - 18);
+    } else {
+      labelTop = Math.max(20, Math.min(window.innerHeight - labelH - 20, rect.top + rect.height / 2 - labelH / 2));
+    }
+    var labelLeft = Math.max(20, Math.min(window.innerWidth - labelW - 20, rect.left + rect.width / 2 - labelW / 2));
 
     var label = document.createElement('div');
-    label.className = 'tour-label';
-    label.innerHTML = '<b>' + step.title + '</b>' + step.desc;
-
-    var labelW = 200, labelH = 60;
-    var tCx = rect.left + rect.width / 2;
-    var tCy = rect.top + rect.height / 2;
-    var labelX, labelY, fromX, fromY, toX, toY;
-
-    if (step.pos === 'below') {
-      labelX = Math.max(20, Math.min(window.innerWidth - labelW - 20, tCx - labelW / 2));
-      labelY = rect.bottom + 60;
-      fromX = labelX + labelW / 2; fromY = labelY;
-      toX = tCx; toY = rect.bottom + 6;
-    } else if (step.pos === 'above') {
-      labelX = Math.max(20, Math.min(window.innerWidth - labelW - 20, tCx - labelW / 2));
-      labelY = Math.max(20, rect.top - labelH - 50);
-      fromX = labelX + labelW / 2; fromY = labelY + labelH;
-      toX = tCx; toY = rect.top - 6;
-    } else { // right
-      labelX = Math.min(window.innerWidth - labelW - 20, rect.right + 60);
-      labelY = Math.max(20, tCy - labelH / 2);
-      fromX = labelX; fromY = labelY + labelH / 2;
-      toX = rect.right + 6; toY = tCy;
-    }
-
-    label.style.left = labelX + 'px';
-    label.style.top = labelY + 'px';
+    label.className = 'tour-label-seq';
+    label.style.left = labelLeft + 'px';
+    label.style.top = labelTop + 'px';
+    label.style.width = labelW + 'px';
+    label.innerHTML =
+      '<div class="tour-step-num">Step ' + (tourIdx + 1) + ' / ' + TOUR_STEPS.length + '</div>' +
+      '<div class="tour-title">' + step.title + '</div>' +
+      '<div class="tour-desc">' + step.desc + '</div>' +
+      '<div class="tour-actions">' +
+        (tourIdx > 0
+          ? '<button class="tour-btn-secondary" id="tour-prev-btn">← Prev</button>'
+          : '<span></span>') +
+        '<button class="tour-btn-primary" id="tour-next-btn">' + (tourIdx === TOUR_STEPS.length - 1 ? 'Done ✓' : 'Next →') + '</button>' +
+      '</div>';
     overlay.appendChild(label);
 
-    var path = document.createElementNS(svgNS, 'path');
-    var midX = (fromX + toX) / 2;
-    var midY = (fromY + toY) / 2;
-    var curveOffset = step.pos === 'right' ? 0 : (toY < fromY ? -25 : 25);
-    var d = 'M ' + fromX + ' ' + fromY + ' Q ' + (midX + curveOffset) + ' ' + midY + ' ' + toX + ' ' + toY;
-    path.setAttribute('d', d);
-    path.setAttribute('stroke', arrowColor);
-    path.setAttribute('stroke-width', '2');
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke-dasharray', '5 4');
-    path.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(path);
+    var skipBtn = document.createElement('button');
+    skipBtn.className = 'tour-skip-btn';
+    skipBtn.textContent = 'Skip ✕';
+    skipBtn.onclick = closeTour;
+    overlay.appendChild(skipBtn);
 
-    var dot = document.createElementNS(svgNS, 'circle');
-    dot.setAttribute('cx', toX);
-    dot.setAttribute('cy', toY);
-    dot.setAttribute('r', '5');
-    dot.setAttribute('fill', arrowColor);
-    svg.appendChild(dot);
-  });
-
-  var gotIt = document.createElement('button');
-  gotIt.className = 'tour-gotit';
-  gotIt.textContent = 'Got it ✓';
-  gotIt.onclick = closeTour;
-  overlay.appendChild(gotIt);
-
-  // Close on resize (positions go stale)
-  var onResize = function() { closeTour(); window.removeEventListener('resize', onResize); };
-  window.addEventListener('resize', onResize);
-
-  document.body.appendChild(overlay);
+    var nextBtn = document.getElementById('tour-next-btn');
+    if (nextBtn) nextBtn.onclick = tourNext;
+    var prevBtn = document.getElementById('tour-prev-btn');
+    if (prevBtn) prevBtn.onclick = tourPrev;
+  }, 350);
 }
 
 function maybeAutoTour() {
   try {
     if (localStorage.getItem('esl-tour-seen') === '1') return;
   } catch(e) {}
-  // Wait for timeline to render before measuring
-  setTimeout(runTour, 600);
+  setTimeout(runTour, 800);
 }
 
 function drawDependencies() {

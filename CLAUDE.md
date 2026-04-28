@@ -230,9 +230,11 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Show Actual (2026-04-28)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.notionStart` / `t.notionEnd` (Jira via Notion).
 
 ### What's-new tour overlay (2026-04-28)
-- `?` button in top-right (next to theme toggle) opens a coachmark overlay with 6 callouts pointing at recent features: Progress widgets, Schedule filter strip, PRD by PM cards, Risk chips, Show Actual toggle, Plan vs Actual columns.
+- `?` button in top-right (next to theme toggle) opens a sequential walkthrough with 6 callouts pointing at recent features: Progress widgets, Schedule filter strip, PRD by PM cards, Risk chips, Show Actual toggle, Plan vs Actual columns.
 - Auto-shown on first visit; persisted via localStorage key `esl-tour-seen`. `?` button re-opens any time.
-- Implementation: `TOUR_STEPS` array → `runTour()` builds a fixed overlay (dim layer + SVG arrows + absolute-positioned label divs + Got it button). Positions computed at runtime via `getBoundingClientRect`. Window resize closes the tour (positions go stale).
+- Implementation: `TOUR_STEPS` array → `runTour()` initializes; `renderTourStep()` builds one step at a time. Each step calls `target.scrollIntoView({block:'center'})`, then renders a spotlight rectangle (CSS `box-shadow:0 0 0 9999px rgba(0,0,0,0.65)` trick — dims everything except the highlighted target) + a single floating `.tour-label-seq` panel near the target (auto-positioned below/above based on viewport space). Footer of the panel: Step X/N counter, Prev/Next/Done buttons; top-right Skip ✕ button.
+- Body scroll locked during a step; unlocked briefly during `scrollIntoView`. Keyboard: `→`/Enter advances, `←` goes back, Esc closes.
+- Note: an earlier implementation tried to show all 6 callouts at once with curved SVG arrows — it didn't work because labels overlapped on smaller viewports and the dim layer blocked page scroll. Sequential mode replaced it.
 - Filter logic: all four filters combined with AND in `renderTimeline()`
 - When a team is selected, Alloc/Status columns are shown (showExtra flag)
 
