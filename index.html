@@ -1529,13 +1529,16 @@ function renderTourStep() {
   spot.classList.add('step-change');
   label.classList.add('step-change');
 
-  // Predict post-scroll center position so spot animates smoothly toward where target will land
-  var predictedTop = (window.innerHeight - rect.height) / 2;
-  // If target is roughly already centered, no scroll happens — stay put
-  var inMidBand = rect.top >= window.innerHeight * 0.25 && rect.bottom <= window.innerHeight * 0.75;
-  var fakeRect = inMidBand ? rect : { left: rect.left, top: predictedTop, width: rect.width, height: rect.height, bottom: predictedTop + rect.height, right: rect.left + rect.width };
+  // Predict where target will land after smooth scrollIntoView({block:'center'}),
+  // accounting for the document's scroll bounds (page can't scroll past 0 or past max).
+  var scrollY = window.scrollY || window.pageYOffset || 0;
+  var docTop = scrollY + rect.top;
+  var maxScrollY = Math.max(0, (document.documentElement.scrollHeight || document.body.scrollHeight) - window.innerHeight);
+  var desiredScrollY = docTop - (window.innerHeight - rect.height) / 2;
+  var newScrollY = Math.max(0, Math.min(maxScrollY, desiredScrollY));
+  var predTop = docTop - newScrollY;
+  var fakeRect = { left: rect.left, top: predTop, width: rect.width, height: rect.height, bottom: predTop + rect.height, right: rect.right };
 
-  // Apply predicted position (CSS transition animates)
   spot.style.left = (fakeRect.left - 6) + 'px';
   spot.style.top = (fakeRect.top - 6) + 'px';
   spot.style.width = (fakeRect.width + 12) + 'px';
@@ -1551,10 +1554,11 @@ function renderTourStep() {
   label.style.left = labelLeft + 'px';
   label.style.top = labelTop + 'px';
 
-  // Trigger smooth page scroll in parallel — scroll handler fine-tunes during scroll
-  if (!inMidBand) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Only trigger scroll if there's meaningful distance to travel
+  var willScroll = Math.abs(newScrollY - scrollY) > 4;
+  if (willScroll) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-  // Drop transition class after animation so scroll-tracking is responsive (no lag)
+  // Drop transition class so scroll handler can re-align without animation lag
   setTimeout(function() {
     if (spot) spot.classList.remove('step-change');
     if (label) label.classList.remove('step-change');
