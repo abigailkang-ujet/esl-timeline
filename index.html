@@ -174,9 +174,11 @@
   /* Tour overlay (sequential walkthrough) */
   #tour-overlay { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
   #tour-overlay > * { pointer-events: auto; }
-  #tour-overlay .tour-spotlight { position: fixed; border: 2px solid #fbbf24; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.65); pointer-events: none; transition: all 0.25s ease; }
+  #tour-overlay .tour-spotlight { position: fixed; border: 2px solid #fbbf24; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.65); pointer-events: none; }
   body.light-mode #tour-overlay .tour-spotlight { box-shadow: 0 0 0 9999px rgba(15,23,42,0.45); }
+  #tour-overlay .tour-spotlight.step-change { transition: left 0.28s ease, top 0.28s ease, width 0.28s ease, height 0.28s ease; }
   #tour-overlay .tour-label-seq { position: fixed; background: rgba(255,255,255,0.98); color: #0f172a; border-radius: 12px; padding: 14px 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 13px; line-height: 1.5; z-index: 1002; }
+  #tour-overlay .tour-label-seq.step-change { transition: left 0.28s ease, top 0.28s ease; }
   #tour-overlay .tour-step-num { font-size: 10px; color: #64748b; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.08em; text-transform: uppercase; }
   #tour-overlay .tour-title { font-size: 14px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
   #tour-overlay .tour-desc { font-size: 12.5px; color: #334155; margin-bottom: 12px; line-height: 1.5; }
@@ -1408,11 +1410,13 @@ function tourKeyHandler(e) {
   else if (e.key === 'ArrowLeft') tourPrev();
 }
 
+function tourScrollHandler() { positionTourElements(); }
+
 function closeTour() {
   var existing = document.getElementById('tour-overlay');
   if (existing) existing.parentNode.removeChild(existing);
-  document.body.style.overflow = '';
   document.removeEventListener('keydown', tourKeyHandler);
+  window.removeEventListener('scroll', tourScrollHandler);
   try { localStorage.setItem('esl-tour-seen', '1'); } catch(e) {}
 }
 
@@ -1430,89 +1434,131 @@ function runTour() {
   tourIdx = 0;
   var overlay = document.createElement('div');
   overlay.id = 'tour-overlay';
+  // Skip button (persistent across steps)
+  var skipBtn = document.createElement('button');
+  skipBtn.className = 'tour-skip-btn';
+  skipBtn.textContent = 'Skip ✕';
+  skipBtn.onclick = closeTour;
+  overlay.appendChild(skipBtn);
   document.body.appendChild(overlay);
   document.addEventListener('keydown', tourKeyHandler);
+  window.addEventListener('scroll', tourScrollHandler, { passive: true });
   renderTourStep();
+}
+
+function positionTourElements() {
+  var overlay = document.getElementById('tour-overlay');
+  if (!overlay) return;
+  var step = TOUR_STEPS[tourIdx];
+  var target = document.querySelector(step.sel);
+  if (!target) return;
+  var rect = target.getBoundingClientRect();
+
+  var spot = overlay.querySelector('.tour-spotlight');
+  if (spot) {
+    spot.style.left = (rect.left - 6) + 'px';
+    spot.style.top = (rect.top - 6) + 'px';
+    spot.style.width = (rect.width + 12) + 'px';
+    spot.style.height = (rect.height + 12) + 'px';
+  }
+
+  var label = overlay.querySelector('.tour-label-seq');
+  if (label) {
+    var labelW = 280, labelH = 140;
+    var spaceBelow = window.innerHeight - rect.bottom;
+    var spaceAbove = rect.top;
+    var labelTop;
+    if (spaceBelow >= labelH + 30) labelTop = rect.bottom + 18;
+    else if (spaceAbove >= labelH + 30) labelTop = Math.max(20, rect.top - labelH - 18);
+    else labelTop = Math.max(20, Math.min(window.innerHeight - labelH - 20, rect.top + rect.height / 2 - labelH / 2));
+    var labelLeft = Math.max(20, Math.min(window.innerWidth - labelW - 20, rect.left + rect.width / 2 - labelW / 2));
+    label.style.left = labelLeft + 'px';
+    label.style.top = labelTop + 'px';
+  }
 }
 
 function renderTourStep() {
   var overlay = document.getElementById('tour-overlay');
   if (!overlay) return;
-  overlay.innerHTML = '';
 
   var step = TOUR_STEPS[tourIdx];
   var target = document.querySelector(step.sel);
-
-  // Skip step if target missing or zero-size
   if (!target) {
     if (tourIdx < TOUR_STEPS.length - 1) { tourIdx++; return renderTourStep(); }
     return closeTour();
   }
-  var preRect = target.getBoundingClientRect();
-  if (preRect.width === 0 && preRect.height === 0) {
+  var rect = target.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
     if (tourIdx < TOUR_STEPS.length - 1) { tourIdx++; return renderTourStep(); }
     return closeTour();
   }
 
-  // Allow scroll briefly so scrollIntoView works, then lock
-  document.body.style.overflow = '';
-  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-  setTimeout(function() {
-    document.body.style.overflow = 'hidden';
-    var rect = target.getBoundingClientRect();
-
-    // Spotlight outline + dim outside via box-shadow trick
-    var spot = document.createElement('div');
+  // Get or create spotlight + label (persisted across steps)
+  var spot = overlay.querySelector('.tour-spotlight');
+  if (!spot) {
+    spot = document.createElement('div');
     spot.className = 'tour-spotlight';
-    spot.style.left = (rect.left - 6) + 'px';
-    spot.style.top = (rect.top - 6) + 'px';
-    spot.style.width = (rect.width + 12) + 'px';
-    spot.style.height = (rect.height + 12) + 'px';
     overlay.appendChild(spot);
-
-    // Label box — prefer below, else above, clamped to viewport
-    var labelW = 280, labelH = 140;
-    var spaceBelow = window.innerHeight - rect.bottom;
-    var spaceAbove = rect.top;
-    var labelTop;
-    if (spaceBelow >= labelH + 30) {
-      labelTop = rect.bottom + 18;
-    } else if (spaceAbove >= labelH + 30) {
-      labelTop = Math.max(20, rect.top - labelH - 18);
-    } else {
-      labelTop = Math.max(20, Math.min(window.innerHeight - labelH - 20, rect.top + rect.height / 2 - labelH / 2));
-    }
-    var labelLeft = Math.max(20, Math.min(window.innerWidth - labelW - 20, rect.left + rect.width / 2 - labelW / 2));
-
-    var label = document.createElement('div');
+  }
+  var label = overlay.querySelector('.tour-label-seq');
+  if (!label) {
+    label = document.createElement('div');
     label.className = 'tour-label-seq';
-    label.style.left = labelLeft + 'px';
-    label.style.top = labelTop + 'px';
-    label.style.width = labelW + 'px';
-    label.innerHTML =
-      '<div class="tour-step-num">Step ' + (tourIdx + 1) + ' / ' + TOUR_STEPS.length + '</div>' +
-      '<div class="tour-title">' + step.title + '</div>' +
-      '<div class="tour-desc">' + step.desc + '</div>' +
-      '<div class="tour-actions">' +
-        (tourIdx > 0
-          ? '<button class="tour-btn-secondary" id="tour-prev-btn">← Prev</button>'
-          : '<span></span>') +
-        '<button class="tour-btn-primary" id="tour-next-btn">' + (tourIdx === TOUR_STEPS.length - 1 ? 'Done ✓' : 'Next →') + '</button>' +
-      '</div>';
+    label.style.width = '280px';
     overlay.appendChild(label);
+  }
 
-    var skipBtn = document.createElement('button');
-    skipBtn.className = 'tour-skip-btn';
-    skipBtn.textContent = 'Skip ✕';
-    skipBtn.onclick = closeTour;
-    overlay.appendChild(skipBtn);
+  // Update label content
+  label.innerHTML =
+    '<div class="tour-step-num">Step ' + (tourIdx + 1) + ' / ' + TOUR_STEPS.length + '</div>' +
+    '<div class="tour-title">' + step.title + '</div>' +
+    '<div class="tour-desc">' + step.desc + '</div>' +
+    '<div class="tour-actions">' +
+      (tourIdx > 0
+        ? '<button class="tour-btn-secondary" id="tour-prev-btn">← Prev</button>'
+        : '<span></span>') +
+      '<button class="tour-btn-primary" id="tour-next-btn">' + (tourIdx === TOUR_STEPS.length - 1 ? 'Done ✓' : 'Next →') + '</button>' +
+    '</div>';
 
-    var nextBtn = document.getElementById('tour-next-btn');
-    if (nextBtn) nextBtn.onclick = tourNext;
-    var prevBtn = document.getElementById('tour-prev-btn');
-    if (prevBtn) prevBtn.onclick = tourPrev;
-  }, 350);
+  var nextBtn = document.getElementById('tour-next-btn');
+  if (nextBtn) nextBtn.onclick = tourNext;
+  var prevBtn = document.getElementById('tour-prev-btn');
+  if (prevBtn) prevBtn.onclick = tourPrev;
+
+  // Smooth animation between steps via temporary class
+  spot.classList.add('step-change');
+  label.classList.add('step-change');
+
+  // Predict post-scroll center position so spot animates smoothly toward where target will land
+  var predictedTop = (window.innerHeight - rect.height) / 2;
+  // If target is roughly already centered, no scroll happens — stay put
+  var inMidBand = rect.top >= window.innerHeight * 0.25 && rect.bottom <= window.innerHeight * 0.75;
+  var fakeRect = inMidBand ? rect : { left: rect.left, top: predictedTop, width: rect.width, height: rect.height, bottom: predictedTop + rect.height, right: rect.left + rect.width };
+
+  // Apply predicted position (CSS transition animates)
+  spot.style.left = (fakeRect.left - 6) + 'px';
+  spot.style.top = (fakeRect.top - 6) + 'px';
+  spot.style.width = (fakeRect.width + 12) + 'px';
+  spot.style.height = (fakeRect.height + 12) + 'px';
+  var labelW = 280, labelH = 140;
+  var spaceBelow = window.innerHeight - fakeRect.bottom;
+  var spaceAbove = fakeRect.top;
+  var labelTop;
+  if (spaceBelow >= labelH + 30) labelTop = fakeRect.bottom + 18;
+  else if (spaceAbove >= labelH + 30) labelTop = Math.max(20, fakeRect.top - labelH - 18);
+  else labelTop = Math.max(20, Math.min(window.innerHeight - labelH - 20, fakeRect.top + fakeRect.height / 2 - labelH / 2));
+  var labelLeft = Math.max(20, Math.min(window.innerWidth - labelW - 20, fakeRect.left + fakeRect.width / 2 - labelW / 2));
+  label.style.left = labelLeft + 'px';
+  label.style.top = labelTop + 'px';
+
+  // Trigger smooth page scroll in parallel — scroll handler fine-tunes during scroll
+  if (!inMidBand) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Drop transition class after animation so scroll-tracking is responsive (no lag)
+  setTimeout(function() {
+    if (spot) spot.classList.remove('step-change');
+    if (label) label.classList.remove('step-change');
+  }, 320);
 }
 
 function maybeAutoTour() {
