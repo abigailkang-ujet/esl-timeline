@@ -188,7 +188,14 @@
   #tour-overlay .tour-btn-secondary { background: transparent; color: #64748b; border: 1px solid #cbd5e1; padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; }
   #tour-overlay .tour-btn-secondary:hover { background: #f1f5f9; }
   #tour-overlay .tour-skip-btn { position: fixed; top: 20px; right: 20px; background: rgba(255,255,255,0.95); color: #0f172a; padding: 8px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; z-index: 1003; }
-  #tour-trigger { font-size: 14px; font-weight: 600; padding: 6px 12px; min-width: 30px; }
+  #tour-trigger { font-weight: 600; }
+  @keyframes guide-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(251, 191, 36, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+  }
+  #tour-trigger.attention { animation: guide-pulse 1.6s ease-out infinite; border-color: #fbbf24; color: #fbbf24; }
+  body.light-mode #tour-trigger.attention { border-color: #d97706; color: #d97706; }
   table.timeline thead tr th:first-child { border-top-left-radius: 12px; }
   table.timeline td.info-col {
     padding: 0 10px; font-size: 14px; border-bottom: 1px solid var(--border);
@@ -411,7 +418,7 @@
     <p class="subtitle" style="margin-bottom:0;font-size:12px;opacity:0.7">Gantt chart view &middot; data live from Google Sheets &amp; Notion</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    <button class="theme-btn" id="tour-trigger" onclick="runTour()" title="Show what's new">?</button>
+    <button class="theme-btn" id="tour-trigger" onclick="runTour()" title="Show what's new">Guide</button>
     <button class="theme-btn" id="theme-toggle" onclick="toggleTheme()">Light Mode</button>
   </div>
 </div>
@@ -1432,6 +1439,8 @@ function tourPrev() {
 function runTour() {
   closeTour();
   tourIdx = 0;
+  var trigger = document.getElementById('tour-trigger');
+  if (trigger) trigger.classList.remove('attention');
   var overlay = document.createElement('div');
   overlay.id = 'tour-overlay';
   // Skip button (persistent across steps)
@@ -1699,6 +1708,15 @@ function toggleTheme() {
     }
     var savedActual = localStorage.getItem('esl-show-actual');
     showActual = (savedActual === '1');
+
+    // Guide attention pulse — only for users who haven't dismissed the tour yet
+    if (localStorage.getItem('esl-tour-seen') !== '1') {
+      var guideBtn = document.getElementById('tour-trigger');
+      if (guideBtn) {
+        guideBtn.classList.add('attention');
+        setTimeout(function() { guideBtn.classList.remove('attention'); }, 8000);
+      }
+    }
   } catch(e) {}
 })();
 
