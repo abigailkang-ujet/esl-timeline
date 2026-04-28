@@ -21,3 +21,4 @@
 # clasp (optional Apps Script CLI — if adopted later)
 .clasprc.json
 .clasp.json
+.superpowers/
