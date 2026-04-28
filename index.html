@@ -1519,7 +1519,7 @@ function renderTourStep() {
 
   // Update label content
   label.innerHTML =
-    '<div class="tour-step-num">Step ' + (tourIdx + 1) + ' / ' + TOUR_STEPS.length + '</div>' +
+    '<div class="tour-step-num">What\'s New ' + (tourIdx + 1) + ' / ' + TOUR_STEPS.length + '</div>' +
     '<div class="tour-title">' + step.title + '</div>' +
     '<div class="tour-desc">' + step.desc + '</div>' +
     '<div class="tour-actions">' +
@@ -1571,7 +1571,10 @@ function maybeAutoTour() {
   try {
     if (localStorage.getItem('esl-tour-seen') === '1') return;
   } catch(e) {}
-  setTimeout(runTour, 800);
+  // Delay matches the Guide button's attention pulse window — gives the user
+  // a chance to notice the pulse and click it; if they don't, the tour pops
+  // up on its own.
+  setTimeout(runTour, 8000);
 }
 
 function drawDependencies() {
