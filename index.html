@@ -447,6 +447,7 @@ let activeStatus   = 'ALL';
 let activeSchedule = 'ALL';
 let searchQuery   = '';
 let showDeps      = false;
+let showActual    = false; // toggled via "Show Actual" button; persisted in localStorage
 let activeSort    = 'default'; // 'default' | 'start' | 'end' | 'ideal'
 let flatView      = false;
 let lastUpdatedAt = '';
@@ -526,6 +527,17 @@ function renderAll(updatedAt) {
   ctrlRow.appendChild(depsLbl);
   ctrlRow.appendChild(depsBtn);
 
+  const actLbl = document.createElement('span');
+  actLbl.className = 'filter-label';
+  actLbl.textContent = 'Actual';
+  const actBtn = document.createElement('button');
+  actBtn.id = 'actual-toggle';
+  actBtn.className = 'filter-btn' + (showActual ? ' active' : '');
+  actBtn.textContent = 'Show Actual';
+  actBtn.onclick = toggleShowActual;
+  ctrlRow.appendChild(actLbl);
+  ctrlRow.appendChild(actBtn);
+
   // ── Sort controls ──
   var sortSep = document.createElement('span');
   sortSep.style.cssText = 'display:inline-block;width:1px;height:16px;background:var(--border-mid);margin:0 6px;align-self:center;';
@@ -534,7 +546,7 @@ function renderAll(updatedAt) {
   sortLbl.className = 'filter-label';
   sortLbl.textContent = 'Sort';
   ctrlRow.appendChild(sortLbl);
-  var sortOpts = [{v:'default',l:'Default'},{v:'start',l:'Start Date'},{v:'end',l:'End Date'},{v:'ideal',l:'Ideal Date'}];
+  var sortOpts = [{v:'default',l:'Default'},{v:'start',l:'Plan Start'},{v:'end',l:'Plan End'},{v:'ideal',l:'Ideal Date'}];
   sortOpts.forEach(function(s) {
     var btn = document.createElement('button');
     btn.className = 'filter-btn' + (activeSort === s.v ? ' active' : '');
@@ -623,9 +635,11 @@ function applyHiddenCols() {
 
 function attachColToggle() {
   document.querySelectorAll('th[data-col]').forEach(function(th) {
+    var col = th.getAttribute('data-col');
+    if (col === 'actStart' || col === 'actEnd') return; // controlled by Show Actual toggle, not individual click-to-hide
     th.addEventListener('click', function(e) {
       if (e.target.closest('.col-info')) return;
-      toggleCol(th.getAttribute('data-col'));
+      toggleCol(col);
     });
   });
 }
@@ -976,8 +990,9 @@ function buildTimeline(tasks, teamFilter) {
     '<th class="info-col" data-col="pm" style="width:90px" title="Click to hide">PM' + tip('PM owner \u2014 from Notion DB') + '</th>' +
     '<th class="info-col" data-col="prd" style="width:50px" title="Click to hide">PRD' + tip('PRD status from Notion: \u2713=done, Draft, Rev=In Review, N=missing, \u2212=N/A') + '</th>' +
     '<th class="info-col" data-col="risk" style="width:50px" title="Click to hide">Risk' + tip('Risk factor \u2014 from Realistic Scenario sheet (Low / Medium / High)') + '</th>' +
-    '<th class="info-col" data-col="start" style="width:55px" title="Click to hide">Start' + tip('Planned start date \u2014 from Realistic Scenario sheet') + '</th>' +
-    '<th class="info-col" data-col="end" style="width:55px" title="Click to hide">End' + tip('Projected end date \u2014 from Realistic Scenario sheet') + '</th>' +
+    '<th class="info-col" data-col="start" style="width:60px" title="Click to hide">Plan Start' + tip('Planned start date \u2014 from Realistic Scenario sheet') + '</th>' +
+    '<th class="info-col" data-col="end" style="width:60px" title="Click to hide">Plan End' + tip('Planned end date \u2014 from Realistic Scenario sheet') + '</th>' +
+    (showActual ? '<th class="info-col" data-col="actStart" style="width:60px">Act Start' + tip('Actual start date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not started yet.') + '</th><th class="info-col" data-col="actEnd" style="width:60px">Act End' + tip('Actual end date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not finished yet.') + '</th>' : '') +
     '<th class="info-col" data-col="ideal" style="width:55px" title="Click to hide">Ideal' + tip('Target delivery per SOW \u2014 from Realistic Scenario sheet') + '</th>' +
     '<th class="info-col" data-col="schedule" style="width:82px" title="Click to hide">Schedule' + tip('Behind / On Track / Ahead \u2014 based on Jira actual dates (synced via Notion). If started: compares actual end vs planned end (\u00b13 day tolerance). If not started: Behind when planned start date has passed.') + '</th>' +
     (showExtra ? '<th class="info-col" data-col="alloc" style="width:90px" title="Click to hide">Alloc' + tip('Team allocation % \u2014 from Realistic Scenario sheet') + '</th><th class="info-col" data-col="status" style="width:90px" title="Click to hide">Status' + tip('Task status from Notion (To Do / In Progress / Closed \u2026)') + '</th>' : '') +
@@ -1022,6 +1037,7 @@ function buildTimeline(tasks, teamFilter) {
       task:t.task, epic:t.epic, lead:t.lead, allocation:t.allocation,
       headcount:t.headcount, pm:pmFull, pmo:t.pmo, prd:t.prd, prdUrl:t.prdUrl,
       start:t.start, end:t.end, ideal:id?fmtFull(id):'', effort:t.effort,
+      notionStart:t.notionStart||'', notionEnd:t.notionEnd||'',
       risk:t.risk, note:t.note, status:t.status,
       blocking:t.blocking||[], blockedBy:t.blockedBy||[],
     };
@@ -1057,6 +1073,7 @@ function buildTimeline(tasks, teamFilter) {
       '<td class="info-col" data-col="risk">' + buildRiskBadge(t.risk) + '</td>' +
       '<td class="info-col date-cell" data-col="start">' + fmtShort(sd) + '</td>' +
       '<td class="info-col date-cell" data-col="end">' + fmtShort(ed) + '</td>' +
+      (showActual ? '<td class="info-col date-cell" data-col="actStart">' + fmtShort(parseDate(t.notionStart)) + '</td><td class="info-col date-cell" data-col="actEnd">' + fmtShort(parseDate(t.notionEnd)) + '</td>' : '') +
       '<td class="info-col date-cell" data-col="ideal"' + (isAtRisk?' style="color:#fca5a5;font-weight:600"':'') + '>' + fmtShort(id) + '</td>' +
       '<td class="info-col" data-col="schedule">' + buildScheduleBadge(t) + '</td>' +
       (showExtra ? '<td class="info-col date-cell" data-col="alloc">' + (t.allocation||'-') + '</td><td class="info-col date-cell" data-col="status">' + (t.status||'-') + '</td>' : '') +
@@ -1112,8 +1129,10 @@ function buildTimeline(tasks, teamFilter) {
       if (d.lead) html += '<div class="tt-row"><span class="tt-label">Lead</span><span class="tt-value">' + d.lead + '</span></div>';
       if (d.allocation) html += '<div class="tt-row"><span class="tt-label">Allocation</span><span class="tt-value">' + d.allocation + '</span></div>';
       if (d.headcount) html += '<div class="tt-row"><span class="tt-label">Headcount</span><span class="tt-value">' + d.headcount + '</span></div>';
-      html += '<div class="tt-row"><span class="tt-label">Start</span><span class="tt-value">' + (d.start||'-') + '</span></div>';
-      html += '<div class="tt-row"><span class="tt-label">End</span><span class="tt-value">' + (d.end||'-') + '</span></div>';
+      html += '<div class="tt-row"><span class="tt-label">Plan Start</span><span class="tt-value">' + (d.start||'-') + '</span></div>';
+      html += '<div class="tt-row"><span class="tt-label">Plan End</span><span class="tt-value">' + (d.end||'-') + '</span></div>';
+      if (d.notionStart) html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.notionStart + '</span></div>';
+      if (d.notionEnd)   html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.notionEnd + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Ideal</span><span class="tt-value">' + (d.ideal||'-') + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Effort</span><span class="tt-value">' + d.effort + ' weeks</span></div>';
       if (d.risk) html += '<div class="tt-row"><span class="tt-label">Risk</span><span class="tt-value">' + d.risk + '</span></div>';
@@ -1344,6 +1363,12 @@ function toggleDeps() {
   }
 }
 
+function toggleShowActual() {
+  showActual = !showActual;
+  try { localStorage.setItem('esl-show-actual', showActual ? '1' : '0'); } catch(e) {}
+  renderAll(null);
+}
+
 function drawDependencies() {
   var old = document.getElementById('dep-svg');
   if (old) old.parentNode.removeChild(old);
@@ -1476,6 +1501,8 @@ function toggleTheme() {
       var btn = document.getElementById('theme-toggle');
       if (btn) btn.textContent = 'Dark Mode';
     }
+    var savedActual = localStorage.getItem('esl-show-actual');
+    showActual = (savedActual === '1');
   } catch(e) {}
 })();
 

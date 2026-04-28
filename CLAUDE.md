@@ -227,6 +227,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Schedule (2026-04-27)**: `activeSchedule` variable — set by clicking Schedule strip pills
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
+- **Show Actual (2026-04-28)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.notionStart` / `t.notionEnd` (Jira via Notion).
 - Filter logic: all four filters combined with AND in `renderTimeline()`
 - When a team is selected, Alloc/Status columns are shown (showExtra flag)
 
@@ -249,7 +250,8 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - Tooltip: "based on Jira actual dates (synced via Notion). If started: compares actual end vs planned end (±3 day tolerance). If not started: Behind when planned start date has passed."
 
 ### Tooltip
-- Fields: lead, allocation, headcount, start/end/ideal, effort, risk, PM, PMO, PRD, status, blocking, blockedBy, note
+- Fields: lead, allocation, headcount, **Plan Start / Plan End** (always), **Actual Start / Actual End** (only when present), Ideal, effort, risk, PM, PMO, PRD, status, blocking, blockedBy, note
+- Plan Start/End rows always render (`-` when missing). Actual Start/End rows are conditional on `d.notionStart` / `d.notionEnd` being non-empty — keeps tooltip compact for not-yet-started tasks. Tooltip shows actuals regardless of `Show Actual` toggle state (safety net).
 - **Size**: max-width 300px, padding 10px 12px, font-size 12px
 - **Smart positioning**: flips up/left automatically when near viewport edges
   ```javascript
