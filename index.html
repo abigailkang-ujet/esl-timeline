@@ -1138,10 +1138,11 @@ function buildTimeline(tasks, teamFilter) {
       var teamTasks = sortTaskList(grouped[team] || []);
       if (!teamTasks.length) return;
       var color = TEAM_COLORS[team] || '#64748b';
+      var teamColspan = 10 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
       rows += '<tr class="team-header">' +
-        '<td class="info-col" colspan="' + (showExtra ? 12 : 10) + '" style="color:' + color + ';border-left:3px solid ' + color + '">' + team +
+        '<td class="info-col" colspan="' + teamColspan + '" style="color:' + color + ';border-left:3px solid ' + color + '">' + team +
         ' <span style="font-weight:400;font-size:11px;opacity:0.6">(' + teamTasks.length + ')</span></td>' +
-        '<td class="gantt-col" style="border-bottom:1px solid var(--border-mid)"></td></tr>';
+        '<td class="gantt-col"></td></tr>';
       teamTasks.forEach(function(t) {
         rows += buildTaskRow(t, color, false);
       });
