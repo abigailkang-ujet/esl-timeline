@@ -9,7 +9,7 @@
 <style>
   :root {
     --bg-main:      #0d1117;
-    --bg-card:      #161b27;
+    --bg-card:      #1a2030;
     --bg-elevated:  #1c2333;
     --bg-hover:     rgba(255,255,255,0.025);
     --border:       rgba(255,255,255,0.07);
@@ -176,7 +176,7 @@
   table.timeline th.info-col {
     padding: 11px 10px; font-size: 12px; font-weight: 600; color: var(--text-muted);
     text-transform: uppercase; letter-spacing: 0.07em; text-align: left;
-    border-bottom: 2px solid var(--border-mid); white-space: nowrap;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
     background: var(--bg-card); position: sticky; top: 0; z-index: 6;
   }
   .hdr-pre { display: block; font-size: 9px; line-height: 1; opacity: 0.55; font-weight: 500; letter-spacing: 0.05em; margin-bottom: 2px; }
@@ -225,13 +225,13 @@
     overflow: hidden; max-width: 260px; word-break: break-word;
   }
 
-  th.gantt-col { padding: 0; border-bottom: 2px solid var(--border-mid); background: var(--bg-card); position: sticky; top: 0; z-index: 4; border-top-right-radius: 12px; }
+  th.gantt-col { padding: 0; border-bottom: 1px solid var(--border); background: var(--bg-card); position: sticky; top: 0; z-index: 4; border-top-right-radius: 12px; }
   td.gantt-col { padding: 0; border-bottom: 1px solid var(--border); position: relative; height: 38px; background: var(--bg-elevated); }
 
   .team-header td {
     padding: 6px 10px !important; font-weight: 600; font-size: 11px;
     text-transform: uppercase; letter-spacing: 0.08em;
-    background: var(--bg-card) !important; border-bottom: 1px solid var(--border) !important;
+    background: var(--bg-elevated) !important; border-bottom: 1px solid var(--border) !important;
   }
 
   .task-row:hover td.info-col { background: #222a3d; }
@@ -301,7 +301,7 @@
   }
 
   .gantt-header-wrap { position: relative; }
-  .gantt-months-row { display: flex; border-bottom: 1px solid var(--border-mid); }
+  .gantt-months-row { display: flex; border-bottom: 1px solid var(--border); }
   .gantt-month-label {
     text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted);
     text-transform: uppercase; letter-spacing: 0.07em; padding: 7px 0;
@@ -380,7 +380,7 @@
   }
   body.light-mode table.timeline td.info-col { background: var(--bg-card); }
   body.light-mode td.gantt-col { background: var(--bg-card); }
-  body.light-mode .team-header td { background: var(--bg-elevated) !important; border-bottom: 1px solid var(--border) !important; }
+  body.light-mode .team-header td { background: var(--bg-card) !important; border-bottom: 1px solid var(--border) !important; }
   body.light-mode .task-row:hover td.info-col { background: #dde1f0; }
   body.light-mode .task-row:hover td.gantt-col { background: #dde1f0; }
   body.light-mode .timeline-container { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
@@ -1089,10 +1089,7 @@ function buildTimeline(tasks, teamFilter) {
       : t.task;
     const link = '<span class="task-name-wrap">' + linkInner + '</span>';
     var ganttInner = '<div class="gantt-area" style="width:' + GANTT_W + 'px;position:relative;">';
-    weeks.forEach(function(w, i) {
-      const mb = i > 0 && w.getMonth() !== weeks[i-1].getMonth();
-      if (mb) ganttInner += '<div class="grid-line grid-line-major" style="left:' + (i*weekW) + 'px"></div>';
-    });
+    // Body verticals removed entirely (2026-04-29) — header dividers carry the time anchoring.
     const todayDays = dayOffset(today);
     if (todayDays >= 0 && todayDays <= totalDays)
       ganttInner += '<div class="today-line" style="left:' + dayToPx(todayDays) + 'px"></div>';

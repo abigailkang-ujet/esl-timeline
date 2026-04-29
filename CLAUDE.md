@@ -153,7 +153,7 @@ tpl.timelineData = JSON.stringify(data)
 - **Dark/light mode**: toggle button top-right, saved to localStorage (`esl-theme`)
 - **Inter font**: body font-size 15px
 - **CSS Variables**: `:root` + `body.light-mode` override
-- **Row background**: task rows `--bg-elevated`, team headers `--bg-card` (light mode: reversed — task rows `--bg-card`, team headers `--bg-elevated`)
+- **Row background (2026-04-29 polish pass, follow-up)**: task rows AND team headers share the same bg now — `--bg-elevated` in dark, `--bg-card` in light. Team headers used to be slightly off-tone so they read as a horizontal "band"; uniform bg removes the band, and team identity is carried by the colored left border + colored text only.
 - **Gantt bar**: height 10px, border-radius 10px, opacity 0.8
 - **Flat cards (2026-04-29 polish pass — replaced earlier glassmorphism)**: `.summary-card` and `.prd-pm-card` use solid `var(--bg-card)` + `var(--border)` + soft shadow. No `backdrop-filter`. Hover gives an amber-tinted ring (`rgba(229,164,75,0.35)`) + warm glow + 1px lift. Light-mode `--bg-card` is `#ffffff` so cards read clearly against the page bg. Spec: `docs/superpowers/specs/2026-04-29-polish-pass-design.md`.
 - **Header subtitle (2026-04-27)**: 12px / opacity 0.7 / middle dot separator → `Gantt chart view · data live from Google Sheets & Notion`
@@ -287,18 +287,18 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 ### Gantt
 - **At-risk rows**: highlighted red when end > ideal date
 - **Today line**: red vertical line
-- **Grid lines (2026-04-29 polish pass)**: month boundaries only — weekly verticals were dropped because the date columns + tooltip already give precise dates and the weekly stripes competed with the bars. The grid-line emit loop (`buildTaskRow` Gantt area) only renders `.grid-line-major` when `mb` is true. `.grid-line-minor` CSS rule is left in place for easy revert; no DOM elements carry the class. Major opacity bumped to `0.16` dark / `0.18` light (was 0.10 / 0.11) since it's the only structural grid line now.
+- **Grid lines (2026-04-29 polish pass, second iteration)**: body Gantt cells have **no vertical lines at all** — neither weekly nor month-boundary. Time anchoring is carried by the header dividers (`.gantt-week-label` / `.gantt-month-label` `border-right`) and the per-task date columns; the Today line still draws in red. The grid-line `forEach` loop in `buildTaskRow` is gone. `.grid-line-minor` and `.grid-line-major` CSS rules remain (dead code) for easy revert if a body line is ever wanted again.
 - **Bar click**: if `epicUrl` exists, `window.open(epicUrl, '_blank')` — cursor:pointer, title "Open in Jira"
 - **Status dot**: in gantt-col, position:absolute left:6px, shows status name on hover
 - **TIMELINE_END**: `new Date('2026-10-31')`
 
 ### Team Header
-- Background: `--bg-card` (darker than task rows), `border-left: 3px solid teamColor`, text in team color
+- Background: same as task rows (`--bg-elevated` dark / `--bg-card` light) — see "Row background" above. `border-left: 3px solid teamColor`, text in team color provide the only visual grouping cue.
 - `hexAlpha(hex, a)` helper converts hex → `rgba(r,g,b,a)` (available but not used on header bg)
 
 ### Column Header (th)
 - `border-top-left-radius: 12px` on first th, `border-top-right-radius: 12px` on `th.gantt-col` — matches container border-radius
-- `border-bottom: 2px solid var(--border-mid)` to visually separate header from rows
+- `border-bottom: 1px solid var(--border)` (was 2px / `--border-mid`; softened in 2026-04-29 polish follow-up so the header-body boundary matches every other row separator)
 
 ### Collapsible Columns
 - Click th to toggle hide/show — PRI, TASK, Gantt are fixed; all others collapsible
