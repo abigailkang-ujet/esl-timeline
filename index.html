@@ -1373,9 +1373,11 @@ function explainSchedule(t, s) {
       var lateNote = '';
       if (actualStart && plannedStart) {
         var sd = Math.round((actualStart - plannedStart) / DAY_MS);
-        if (sd > 3) {
+        // Hover surfaces ANY difference vs planned start (the ±3 day
+        // tolerance is for the chip color, not the audit detail).
+        if (sd > 0) {
           lateNote = ' Started ' + sd + ' day' + (sd === 1 ? '' : 's') + ' late (planned ' + t.start + ').';
-        } else if (sd < -3) {
+        } else if (sd < 0) {
           var ed = Math.abs(sd);
           lateNote = ' Started ' + ed + ' day' + (ed === 1 ? '' : 's') + ' early (planned ' + t.start + ').';
         }
