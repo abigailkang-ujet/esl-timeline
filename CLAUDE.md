@@ -155,7 +155,7 @@ tpl.timelineData = JSON.stringify(data)
 - **CSS Variables**: `:root` + `body.light-mode` override
 - **Row background**: task rows `--bg-elevated`, team headers `--bg-card` (light mode: reversed — task rows `--bg-card`, team headers `--bg-elevated`)
 - **Gantt bar**: height 10px, border-radius 10px, opacity 0.8
-- **Glassmorphism (2026-04-27)**: `.summary-card` and `.prd-pm-card` use `rgba(255,255,255,0.04)` bg + `backdrop-filter: blur(14px) saturate(140%)` + subtle inset highlight + thin translucent border. Border brightens on hover. Light mode uses `rgba(255,255,255,0.55)` bg + soft shadow.
+- **Flat cards (2026-04-29 polish pass — replaced earlier glassmorphism)**: `.summary-card` and `.prd-pm-card` use solid `var(--bg-card)` + `var(--border)` + soft shadow. No `backdrop-filter`. Hover gives an amber-tinted ring (`rgba(229,164,75,0.35)`) + warm glow + 1px lift. Light-mode `--bg-card` is `#ffffff` so cards read clearly against the page bg. Spec: `docs/superpowers/specs/2026-04-29-polish-pass-design.md`.
 - **Header subtitle (2026-04-27)**: 12px / opacity 0.7 / middle dot separator → `Gantt chart view · data live from Google Sheets & Notion`
 
 ### Summary Cards (buildSummary)
@@ -168,6 +168,7 @@ tpl.timelineData = JSON.stringify(data)
   - **Teams**: count of `TEAM_ORDER` entries with at least one task.
   - **Program Weeks**: `X / Y` format — X = weeks elapsed (`Math.floor((today - earliest start) / 7d)`, capped at total), Y = total weeks (`Math.ceil((latest end - earliest start) / 7d)`). Label: `Weeks Elapsed / Total`. Renders `—` when no valid dates.
   - **Empty category** (Y = 0) adds `is-empty` class → 50% opacity on the whole card.
+  - **Label typography (2026-04-29 polish pass)**: card labels render UPPERCASE with `letter-spacing: 0.06em`, `font-weight: 600`, `font-size: 11px`, `margin-top: 8px` — matches the existing micro-label style of the Status / Schedule strip headers. Big number above uses `letter-spacing: -0.02em` (relaxed from -0.03em).
   - PRD Alert (banner below): counts missing + todo + draft + review (done/na excluded). Unrelated to the PRD summary card.
   - Helpers live next to `getPrdState()`: `isClosed`, `prdIsDone`, `prdIsRequired`, `programSpanWeeks`.
 - **Status strip** (below Row 1): dynamic pill cards per status
@@ -286,6 +287,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 ### Gantt
 - **At-risk rows**: highlighted red when end > ideal date
 - **Today line**: red vertical line
+- **Grid lines (2026-04-29 polish pass)**: month boundaries only — weekly verticals were dropped because the date columns + tooltip already give precise dates and the weekly stripes competed with the bars. The grid-line emit loop (`buildTaskRow` Gantt area) only renders `.grid-line-major` when `mb` is true. `.grid-line-minor` CSS rule is left in place for easy revert; no DOM elements carry the class. Major opacity bumped to `0.16` dark / `0.18` light (was 0.10 / 0.11) since it's the only structural grid line now.
 - **Bar click**: if `epicUrl` exists, `window.open(epicUrl, '_blank')` — cursor:pointer, title "Open in Jira"
 - **Status dot**: in gantt-col, position:absolute left:6px, shows status name on hover
 - **TIMELINE_END**: `new Date('2026-10-31')`

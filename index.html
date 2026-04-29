@@ -77,20 +77,25 @@
   /* ── Summary cards ── */
   .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 22px; }
   .summary-card {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 16px 14px; text-align: center;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px; text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   }
-  .summary-card:hover { border-color: rgba(255, 255, 255, 0.16); }
+  .summary-card:hover {
+    border-color: rgba(229, 164, 75, 0.35);
+    box-shadow: 0 4px 14px rgba(229, 164, 75, 0.10);
+    transform: translateY(-1px);
+  }
   .summary-card .number {
-    font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; line-height: 1;
+    font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; line-height: 1;
   }
-  .summary-card .label { font-size: 11px; color: var(--text-muted); margin-top: 6px; font-weight: 500; }
+  .summary-card .label {
+    font-size: 11px; color: var(--text-muted); margin-top: 8px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  }
   .summary-card.warn .number { color: var(--amber); }
   .summary-card.danger .number { color: var(--red); }
   .summary-card .num-total {
@@ -114,13 +119,18 @@
   /* PRD Needed — collapsible PM cards */
   .prd-pm-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .prd-pm-card {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 8px 12px;
-    transition: border-color 0.15s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   }
-  .prd-pm-card:hover { border-color: rgba(255, 255, 255, 0.16); }
+  .prd-pm-card:hover {
+    border-color: rgba(229, 164, 75, 0.35);
+    box-shadow: 0 4px 14px rgba(229, 164, 75, 0.10);
+    transform: translateY(-1px);
+  }
   .prd-pm-header {
     display: flex; align-items: center; gap: 8px;
     cursor: pointer; user-select: none;
@@ -330,7 +340,7 @@
 
   /* ── Grid lines (theme-aware) ── */
   .grid-line-minor { background: rgba(255,255,255,0.04); }
-  .grid-line-major { background: rgba(255,255,255,0.10); }
+  .grid-line-major { background: rgba(255,255,255,0.16); }
 
   /* ── Collapsible columns ── */
   th[data-col] { cursor: pointer; user-select: none; }
@@ -359,7 +369,7 @@
   /* ── Light mode ── */
   body.light-mode {
     --bg-main:        #dfe3f0;
-    --bg-card:        #f7f8fc;
+    --bg-card:        #ffffff;
     --bg-elevated:    #eceef7;
     --bg-hover:       rgba(0,0,0,0.03);
     --border:         rgba(0,0,0,0.09);
@@ -375,15 +385,21 @@
   body.light-mode .task-row:hover td.gantt-col { background: #dde1f0; }
   body.light-mode .timeline-container { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
   body.light-mode .summary-card {
-    background: rgba(255, 255, 255, 0.55);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
   }
-  body.light-mode .summary-card:hover { border-color: rgba(0, 0, 0, 0.12); }
+  body.light-mode .summary-card:hover {
+    border-color: rgba(229, 164, 75, 0.45);
+    box-shadow: 0 3px 10px rgba(229, 164, 75, 0.12);
+  }
+  body.light-mode .prd-pm-card { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
+  body.light-mode .prd-pm-card:hover {
+    border-color: rgba(229, 164, 75, 0.45);
+    box-shadow: 0 3px 10px rgba(229, 164, 75, 0.12);
+  }
   body.light-mode .strip-pill:hover { box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08); }
   body.light-mode .theme-btn:hover { border-color: rgba(0,0,0,0.25); }
   body.light-mode .grid-line-minor { background: rgba(0,0,0,0.05); }
-  body.light-mode .grid-line-major { background: rgba(0,0,0,0.11); }
+  body.light-mode .grid-line-major { background: rgba(0,0,0,0.18); }
   body.light-mode .pri-Low,
   body.light-mode .pri-default { background: rgba(0,0,0,0.06); }
   body.light-mode .task-name-cell a:hover { color: var(--accent); }
@@ -396,11 +412,6 @@
   }
   body.light-mode .prd-alert-title { color: #c2410c; }
   body.light-mode .prd-alert-items { color: #92400e; opacity: 1; }
-  body.light-mode .prd-pm-card {
-    background: rgba(255, 255, 255, 0.55);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-  }
-  body.light-mode .prd-pm-card:hover { border-color: rgba(0, 0, 0, 0.12); }
   body.light-mode .prd-pm-name { color: #1e293b; }
   body.light-mode .prd-pm-items { color: #475569; }
   body.light-mode .prd-pm-count {
@@ -1080,7 +1091,7 @@ function buildTimeline(tasks, teamFilter) {
     var ganttInner = '<div class="gantt-area" style="width:' + GANTT_W + 'px;position:relative;">';
     weeks.forEach(function(w, i) {
       const mb = i > 0 && w.getMonth() !== weeks[i-1].getMonth();
-      ganttInner += '<div class="grid-line ' + (mb ? 'grid-line-major' : 'grid-line-minor') + '" style="left:' + (i*weekW) + 'px"></div>';
+      if (mb) ganttInner += '<div class="grid-line grid-line-major" style="left:' + (i*weekW) + 'px"></div>';
     });
     const todayDays = dayOffset(today);
     if (todayDays >= 0 && todayDays <= totalDays)
