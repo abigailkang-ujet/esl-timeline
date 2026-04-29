@@ -1139,10 +1139,17 @@ function buildTimeline(tasks, teamFilter) {
       if (!teamTasks.length) return;
       var color = TEAM_COLORS[team] || '#64748b';
       var teamColspan = 10 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
+      // Continue the Today line through the team-header row so it doesn't
+      // visibly break at every team boundary.
+      var teamTodayLine = '';
+      var teamTodayDays = dayOffset(today);
+      if (teamTodayDays >= 0 && teamTodayDays <= totalDays) {
+        teamTodayLine = '<div class="today-line" style="left:' + dayToPx(teamTodayDays) + 'px"></div>';
+      }
       rows += '<tr class="team-header">' +
         '<td class="info-col" colspan="' + teamColspan + '" style="color:' + color + ';border-left:3px solid ' + color + '">' + team +
         ' <span style="font-weight:400;font-size:11px;opacity:0.6">(' + teamTasks.length + ')</span></td>' +
-        '<td class="gantt-col"></td></tr>';
+        '<td class="gantt-col">' + teamTodayLine + '</td></tr>';
       teamTasks.forEach(function(t) {
         rows += buildTaskRow(t, color, false);
       });
@@ -1343,10 +1350,42 @@ function getScheduleStatus(t) {
 
 function buildScheduleBadge(t) {
   var s = getScheduleStatus(t);
-  if (s === 'Behind')   return '<span class="schedule-badge schedule-behind">Behind</span>';
-  if (s === 'Ahead')    return '<span class="schedule-badge schedule-ahead">Ahead</span>';
-  if (s === 'On Track') return '<span class="schedule-badge schedule-on-track">On Track</span>';
-  return '<span style="color:var(--text-muted)">—</span>';
+  var explain = explainSchedule(t, s).replace(/"/g, '&quot;');
+  if (s === 'Behind')   return '<span class="schedule-badge schedule-behind" title="' + explain + '">Behind</span>';
+  if (s === 'Ahead')    return '<span class="schedule-badge schedule-ahead" title="' + explain + '">Ahead</span>';
+  if (s === 'On Track') return '<span class="schedule-badge schedule-on-track" title="' + explain + '">On Track</span>';
+  return '<span style="color:var(--text-muted)" title="' + explain + '">—</span>';
+}
+
+// Per-task hover explanation: why this task is Behind / On Track / Ahead.
+// Spelled out in concrete dates and day-counts so it's auditable, not a
+// reminder of the generic rules (those live in the column header tooltip).
+function explainSchedule(t, s) {
+  if (s === '—') {
+    return 'No schedule signal: no actual start/end from Jira yet, and the planned start has not passed.';
+  }
+  if (!t.notionEnd) {
+    if (t.notionStart) {
+      return 'Started ' + t.notionStart + ' in Jira. No actual end yet → assumed On Track.';
+    }
+    if (s === 'Behind' && t.start) {
+      return 'Planned start ' + t.start + ' has passed, but the task has not started in Jira yet.';
+    }
+    return 'Status: ' + s + '.';
+  }
+  var projDate = parseDate(t.notionEnd);
+  var baseDate = parseDate(t.end);
+  if (!projDate || !baseDate) return 'Status: ' + s + '.';
+  var diff = Math.round((projDate - baseDate) / DAY_MS);
+  var absDiff = Math.abs(diff);
+  var dayWord = absDiff === 1 ? 'day' : 'days';
+  if (s === 'Behind') {
+    return 'Actual end ' + t.notionEnd + ' is ' + absDiff + ' ' + dayWord + ' after the planned end ' + t.end + ' (>3-day tolerance).';
+  }
+  if (s === 'Ahead') {
+    return 'Actual end ' + t.notionEnd + ' is ' + absDiff + ' ' + dayWord + ' before the planned end ' + t.end + ' (>3-day tolerance).';
+  }
+  return 'Actual end ' + t.notionEnd + ' vs planned end ' + t.end + ' = within ±3 days.';
 }
 
 function scheduleColor(s) {
