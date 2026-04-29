@@ -1366,7 +1366,21 @@ function explainSchedule(t, s) {
   }
   if (!t.notionEnd) {
     if (t.notionStart) {
-      return 'Started ' + t.notionStart + ' in Jira. No actual end yet → assumed On Track.';
+      // In progress. Surface late / early start vs planned, even though
+      // the chip itself is On Track until planned end is in the rear-view.
+      var actualStart = parseDate(t.notionStart);
+      var plannedStart = parseDate(t.start);
+      var lateNote = '';
+      if (actualStart && plannedStart) {
+        var sd = Math.round((actualStart - plannedStart) / DAY_MS);
+        if (sd > 3) {
+          lateNote = ' Started ' + sd + ' day' + (sd === 1 ? '' : 's') + ' late (planned ' + t.start + ').';
+        } else if (sd < -3) {
+          var ed = Math.abs(sd);
+          lateNote = ' Started ' + ed + ' day' + (ed === 1 ? '' : 's') + ' early (planned ' + t.start + ').';
+        }
+      }
+      return 'Started ' + t.notionStart + ' in Jira.' + lateNote + ' On Track until planned end ' + (t.end || '—') + ' is reached.';
     }
     if (s === 'Behind' && t.start) {
       return 'Planned start ' + t.start + ' has passed, but the task has not started in Jira yet.';
