@@ -344,6 +344,7 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 | compareNotionVsSheets hangs/slow | Per-row `setBackground()` calls (1 Sheets API call per row) | Batch: `getRange(...).setBackgrounds(bgColors)` single call |
 | Status pill highlight not updating on click | `buildSummary()` returns new DOM node, doesn't replace existing | Call `renderAll(null)` instead — full re-render clears+rebuilds root |
 | Task started but shows Behind | `buildScheduleBadge` only checked `start < today` without checking `notionStart` | Added `if (t.notionStart) return On Track` before Behind check |
+| To Do task showing Ahead/Behind via end-date comparison | `getScheduleStatus` trusted `notionEnd` presence as "task finished" indicator, but Notion's Start-End Date can carry Jira target dates or stale post-revert data | Rewrote logic to branch on `t.status` first — only the Closed branch consults `notionEnd`; To Do/Untriaged/Blocked ignore notion dates entirely (2026-04-30) |
 | Task name not wrapping to 2 lines | `max-width` on `<td>` ignored in table auto-layout — cell expands horizontally | Use inner `<span class="task-name-wrap">` with `max-width` + `-webkit-line-clamp:2` |
 | Dependency arrows not drawing | Task has `blockedBy` but blocker's `blocking` field empty (one-directional Notion relation) | `drawDependencies` now iterates both `t.blocking` and `t.blockedBy`; `arrowSet` prevents double-draw |
 | Team header / task row look same | Both using `--bg-card` | Task rows → `--bg-elevated`; team header → `--bg-card` (light mode: reversed) |
