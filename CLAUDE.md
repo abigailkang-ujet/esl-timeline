@@ -248,14 +248,17 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Important**: `max-width` on `<td>` in a table with `auto` layout doesn't work — must apply to an inner element
 - `td.task-name-cell`: `white-space:normal`, `overflow-wrap:break-word`, `line-height:1.35`
 
-### Schedule Badge (`buildScheduleBadge`)
-| Condition | Badge |
-|-----------|-------|
-| `notionEnd` exists | Compare notionEnd vs end (±3 day tolerance): Behind / On Track / Ahead |
-| `notionStart` exists, no `notionEnd` | On Track (task has started) |
-| No notionStart/notionEnd + `start` < today | Behind (planned start passed, not started) |
-| Otherwise | — |
-- Tooltip: "based on Jira actual dates (synced via Notion). If started: compares actual end vs planned end (±3 day tolerance). If not started: Behind when planned start date has passed."
+### Schedule Badge (`buildScheduleBadge`) — status-driven (2026-04-30)
+**Branching is keyed on `t.status`, NOT on the presence of `notionStart` / `notionEnd`.** Earlier logic trusted those fields as "actual" indicators, but Jira/Notion's "Start-End Date" property can carry target dates for not-yet-started tickets and stale dates after a status revert. Reading status first prevents To Do tickets from being misclassified as Ahead/Behind.
+
+| `t.status` | Logic |
+|------------|-------|
+| `Closed` / `Done` / `Complete` (case-insensitive) | Compare `notionEnd` vs `t.end` (±3 day tolerance): Behind / On Track / Ahead. If either date missing → `—`. |
+| `In Progress` (exact, lowercase compare) | `On Track` always (we can't compare ends yet). Per-task hover surfaces start-vs-plan delta when `notionStart` differs from `t.start` (any non-zero day count, not the ±3 tolerance). |
+| Anything else (To Do, Untriaged, Blocked, blank) | `Behind` when `t.start` < today, otherwise `—`. Notion dates are deliberately ignored in this branch. |
+
+- Per-task hover (`title` on the chip) explains the specific reason in concrete dates and day counts. Generic rule recap lives on the column header `tip()`.
+- Both functions to update together: `getScheduleStatus(t)` and `explainSchedule(t, s)`.
 
 ### Tooltip
 - Fields: lead, allocation, headcount, **Plan Start / Plan End** (always), **Actual Start / Actual End** (only when present), Ideal, effort, risk, PM, PMO, PRD, status, blocking, blockedBy, note
