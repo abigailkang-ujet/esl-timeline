@@ -56,10 +56,14 @@ Jira (auto-sync) ──→ Notion "ESL Project list" DB
                               ↓ XLOOKUP by jira_url
 Google Sheets "Realistic Scenario - Tasks Details (S2)" ──→ webApp.gs (join on JIRA URL)
                                                                       ↓
+Jira REST (status / customfield_11014 / duedate) ──→ webApp.gs override (5-min cache, 2026-05-06)
+                                                                      ↓
                                                               index.html (serves Gantt)
 ```
 
 All joins are by `jira_url`. Row order in any tab is irrelevant — manual data is anchored by PK.
+
+**Live Jira override (2026-05-06)**: `webApp.gs` calls Jira REST at render time (cached 5 min via `CacheService`) to refresh **only** `t.status`, `t.notionStart`, `t.notionEnd` — every other field still flows through the Notion → Sheets daily path. Failure of the Jira fetch (no token, non-200, throw) returns an empty map; tasks fall back to their Notion-synced values without an exception. Token lives in Apps Script Script Properties under key `jiraToken`. Spec: `docs/superpowers/specs/2026-05-06-jira-live-sync-design.md`.
 
 ---
 
@@ -178,7 +182,7 @@ tpl.timelineData = JSON.stringify(data)
   - Active pill: colored border + tinted background highlight
   - Click same pill again → deselects (back to ALL)
 - **Schedule strip (2026-04-27)** (below Status strip): same pattern, filter by Schedule status
-  - SCHEDULE_ORDER: `['On Track', 'Behind', 'Ahead', '—']`
+  - SCHEDULE_ORDER: `['On Track', 'Behind', 'Ahead', 'Done', '—']` (Done added 2026-05-06)
   - Variable: `activeSchedule` (parallel to `activeStatus`); AND-combined in `renderTimeline()` filter
   - Helpers: `getScheduleStatus(t)` (extracted from `buildScheduleBadge`), `scheduleColor(s)`
   - Colors: On Track green, Behind red, Ahead blue, — grey
@@ -255,7 +259,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 
 | `t.status` | Logic |
 |------------|-------|
-| `Closed` / `Done` / `Complete` (case-insensitive) | Compare `notionEnd` vs `t.end` (±3 day tolerance): Behind / On Track / Ahead. If either date missing → `—`. |
+| `Closed` / `Done` / `Complete` (case-insensitive) | Compare `notionEnd` vs `t.end` (±3 day tolerance): Behind / On Track / Ahead. If either date is missing → `Done` (neutral grey pill — task is closed, on-time/late can't be judged). |
 | `In Progress` (exact, lowercase compare) | `On Track` always (we can't compare ends yet). Per-task hover surfaces start-vs-plan delta when `notionStart` differs from `t.start` (any non-zero day count, not the ±3 tolerance). |
 | Anything else (To Do, Untriaged, Blocked, blank) | `Behind` when `t.start` < today, otherwise `—`. Notion dates are deliberately ignored in this branch. |
 

@@ -16,6 +16,14 @@
 
 const REALISTIC_TAB = 'Realistic Scenario - Tasks Details (S2)';
 
+// ── Jira live sync (status / start / end) — see spec 2026-05-06 ──
+const JIRA_DOMAIN      = 'ujetcs.atlassian.net';
+const JIRA_EMAIL       = 'abigail.kang@ujet.cx';
+const JIRA_FIELD_START = 'customfield_11014';   // Jira Start Date custom field
+const JIRA_FIELD_END   = 'duedate';
+const JIRA_CACHE_KEY   = 'esl-jira-live-v1';
+const JIRA_CACHE_TTL   = 300;                    // 5 minutes
+
 // Jira 프로젝트 키 prefix → 정규화된 팀명 매핑
 // 여기 없는 prefix는 Notion/Sheets 팀값으로 fallback
 const EPIC_TEAM_MAP = {
@@ -133,7 +141,95 @@ function buildTimelineData() {
     });
   });
 
+  // ── Override status / notionStart / notionEnd with live Jira data ──
+  // The Notion → Sheets daily sync can be up to ~24h stale. Hit Jira directly
+  // (5-min cache) for the three fields that drive the Schedule chip. Any
+  // failure path falls through to the Notion-synced values already set above.
+  const jiraKeys = tasks
+    .map(function(t) { return extractJiraKey(t.epicUrl); })
+    .filter(function(k) { return k; });
+  const live = fetchJiraLive(jiraKeys);
+
+  tasks.forEach(function(t) {
+    const key = extractJiraKey(t.epicUrl);
+    if (!key) return;                    // pre-Jira placeholder — keep Notion data
+    const liveEntry = live[key];
+    if (!liveEntry) return;              // Jira didn't return this key — keep Notion data
+    if (liveEntry.status) t.status = liveEntry.status;
+    t.notionStart = liveEntry.start || '';
+    t.notionEnd   = liveEntry.end   || '';
+  });
+
   return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length };
+}
+
+// ============================================================
+// Jira live sync helpers
+// ============================================================
+
+function extractJiraKey(epicUrl) {
+  if (!epicUrl) return '';
+  var m = String(epicUrl).match(/\/browse\/([A-Z]+-\d+)/);
+  return m ? m[1] : '';
+}
+
+/**
+ * Bulk-fetch live status + start + end for a list of Jira keys.
+ * Returns { KEY: { status, start, end } }. Returns {} on any failure
+ * (no token, non-200, network throw, parse error) so callers fall back
+ * to Notion-synced values gracefully.
+ *
+ * Cached in CacheService for 5 minutes (JIRA_CACHE_TTL).
+ */
+function fetchJiraLive(jiraKeys) {
+  if (!jiraKeys || !jiraKeys.length) return {};
+
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(JIRA_CACHE_KEY);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e) { /* fall through to fresh fetch */ }
+  }
+
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) {
+    Logger.log('[jira-live] no jiraToken in Script Properties — falling back to Notion data');
+    return {};
+  }
+
+  var jql = 'key in (' + jiraKeys.join(',') + ')';
+  var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search'
+          + '?jql=' + encodeURIComponent(jql)
+          + '&fields=status,' + JIRA_FIELD_START + ',' + JIRA_FIELD_END
+          + '&maxResults=200';
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  var byKey = {};
+  try {
+    var resp = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+    var code = resp.getResponseCode();
+    if (code !== 200) {
+      Logger.log('[jira-live] HTTP ' + code + ' — falling back to Notion data');
+      return {};
+    }
+    var json = JSON.parse(resp.getContentText());
+    (json.issues || []).forEach(function(i) {
+      var f = i.fields || {};
+      byKey[i.key] = {
+        status: (f.status && f.status.name) || '',
+        start:  f[JIRA_FIELD_START] || '',
+        end:    f[JIRA_FIELD_END]   || '',
+      };
+    });
+  } catch (e) {
+    Logger.log('[jira-live] fetch threw: ' + e.message + ' — falling back to Notion data');
+    return {};
+  }
+
+  try { cache.put(JIRA_CACHE_KEY, JSON.stringify(byKey), JIRA_CACHE_TTL); } catch (e) { /* cache failure is non-fatal */ }
+  return byKey;
 }
 
 // ============================================================

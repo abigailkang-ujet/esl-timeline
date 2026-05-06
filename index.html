@@ -288,6 +288,7 @@
   .schedule-behind   { color: var(--red);   background: var(--red-bg);   border-color: rgba(244,112,103,0.2); }
   .schedule-on-track { color: var(--green); background: var(--green-bg); border-color: rgba(76,175,130,0.2); }
   .schedule-ahead    { color: var(--blue);  background: var(--blue-bg);  border-color: rgba(91,138,245,0.2); }
+  .schedule-done     { color: var(--text-muted); background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.25); }
 
   .prd-missing { color: var(--amber); background: var(--amber-bg); border-color: rgba(229,164,75,0.2); }
   .prd-draft   { color: var(--amber); background: var(--amber-bg); border-color: rgba(229,164,75,0.2); opacity: 0.75; }
@@ -811,7 +812,7 @@ function buildSummary() {
   });
   const scheduleKeys = Object.keys(scheduleCounts);
   if (scheduleKeys.length > 0) {
-    const SCHEDULE_ORDER = ['On Track', 'Behind', 'Ahead', '—'];
+    const SCHEDULE_ORDER = ['On Track', 'Behind', 'Ahead', 'Done', '—'];
     scheduleKeys.sort(function(a, b) {
       var ai = SCHEDULE_ORDER.indexOf(a), bi = SCHEDULE_ORDER.indexOf(b);
       if (ai === -1 && bi === -1) return a.localeCompare(b);
@@ -1359,8 +1360,10 @@ function getScheduleStatus(t) {
   var isInProgress = status === 'in progress';
 
   // Closed: compare actual end (notionEnd) vs planned end (sheet's end).
+  // If either date is missing, we can't compare → return 'Done' so the chip
+  // still reflects "task is closed" without asserting on-time / late.
   if (isClosed) {
-    if (!t.end || !t.notionEnd) return '—';
+    if (!t.end || !t.notionEnd) return 'Done';
     var projDate = parseDate(t.notionEnd);
     var baseDate = parseDate(t.end);
     if (!projDate || !baseDate) return '—';
@@ -1389,6 +1392,7 @@ function buildScheduleBadge(t) {
   if (s === 'Behind')   return '<span class="schedule-badge schedule-behind" title="' + explain + '">Behind</span>';
   if (s === 'Ahead')    return '<span class="schedule-badge schedule-ahead" title="' + explain + '">Ahead</span>';
   if (s === 'On Track') return '<span class="schedule-badge schedule-on-track" title="' + explain + '">On Track</span>';
+  if (s === 'Done')     return '<span class="schedule-badge schedule-done" title="' + explain + '">Done</span>';
   return '<span style="color:var(--text-muted)" title="' + explain + '">—</span>';
 }
 
@@ -1402,9 +1406,12 @@ function explainSchedule(t, s) {
   var isInProgress = status === 'in progress';
   var statusLabel = t.status || '—';
 
-  // Closed: actual end vs planned end.
+  // Closed: actual end vs planned end. If a date is missing the chip is the
+  // neutral "Done" pill — task is closed, but on-time / late can't be judged.
   if (isClosed) {
-    if (!t.end || !t.notionEnd) return 'Closed (status: ' + statusLabel + ') but missing planned or actual end date.';
+    if (!t.end || !t.notionEnd) {
+      return 'Closed (status: ' + statusLabel + '). Missing actual or planned end date — cannot compare to plan.';
+    }
     var projDate = parseDate(t.notionEnd);
     var baseDate = parseDate(t.end);
     if (!projDate || !baseDate) return 'Closed (status: ' + statusLabel + ').';
@@ -1450,6 +1457,7 @@ function scheduleColor(s) {
   if (s === 'Behind')   return 'var(--red)';
   if (s === 'Ahead')    return 'var(--blue)';
   if (s === 'On Track') return 'var(--green)';
+  if (s === 'Done')     return 'var(--text-muted)';
   return '#94a3b8';
 }
 
