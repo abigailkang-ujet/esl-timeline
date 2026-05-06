@@ -203,6 +203,8 @@ tpl.timelineData = JSON.stringify(data)
 
 Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a PM are not counted.
 
+**PRD badge is clickable (2026-05-06)**: states with a `t.prdUrl` (`done`, `draft`, `review`, `todo`) are wrapped in `<a class="prd-badge-link" target="_blank">` opening the PRD page. `missing` and `na` and any task without a recorded `prdUrl` stay as plain spans. Helper: `wrapPrdLink(badgeHtml, prdUrl)` — pass any badge, it returns the original HTML when prdUrl is empty. Used in both the PRD column and the PRD Needed alert items.
+
 ### PRD Alert Banner (rewritten 2026-04-27)
 - **Layout**: per-PM collapsible cards (`.prd-pm-card`) — header click toggles `.collapsed` class
   - Header: `▼` toggle + PM first/last name + count chip (right-aligned)
@@ -210,7 +212,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Item rendering** per task:
   - `[JIRA-KEY]` (clickable, opens Jira in new tab if `t.epicUrl` exists)
   - Task name
-  - PRD state badge (reuses existing `.prd-badge` + `.prd-missing/.prd-draft/.prd-review/.prd-todo`)
+  - PRD state badge (reuses existing `.prd-badge` + `.prd-missing/.prd-draft/.prd-review/.prd-todo`) — wrapped in a `.prd-badge-link` anchor when the task has a `t.prdUrl` (2026-05-06)
   - Urgency text (red `started Xd ago` for overdue / amber `starts in Xd` for upcoming, ≤21 business days)
 - **PM order**: most items first → alphabetical → "— Unassigned —" last
 - **Item order inside PM**: overdue first (most-slipped first), then upcoming (soonest first)
