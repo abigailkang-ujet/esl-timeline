@@ -309,6 +309,10 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 
 ### Team Header
 - Background: same as task rows (`--bg-elevated` dark / `--bg-card` light) — see "Row background" above. `border-left: 3px solid teamColor`, text in team color provide the only visual grouping cue.
+- **Inline meta (2026-05-07)**: header reads `<TEAM> (count) · Lead: <names> · PM: <names>`. Lead and PM were per-task columns until this change; they're identical across tasks within a team in our data, so consolidating saved 180 px of table width that the Gantt area now uses. The `teamPeople(teamTasks)` helper deduplicates and trims names; `t.pm` is split on commas first (multi-PM tasks). If a team has inconsistent values across tasks (rare data drift), they're comma-joined so nothing is hidden. Empty Lead or PM omits the corresponding label.
+- `team-count`, `team-people`, `team-people .role` CSS classes carry the visual styling — count and meta line are smaller / lighter than the team name, names use normal text-transform / letter-spacing (so proper nouns aren't UPPERCASED by the parent rule).
+- Per-task tooltip's Lead / PM Owner rows still render — individual values stay auditable on hover.
+- Team-header `colspan` base value: `8` (was 10 before Lead/PM removal). `+2 if showExtra` (Alloc, Status under team filter) and `+2 if showActual` (Act Start, Act End) modifiers unchanged.
 - `hexAlpha(hex, a)` helper converts hex → `rgba(r,g,b,a)` (available but not used on header bg)
 
 ### Column Header (th)

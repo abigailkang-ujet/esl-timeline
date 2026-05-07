@@ -233,6 +233,16 @@
     text-transform: uppercase; letter-spacing: 0.08em;
     background: var(--bg-elevated) !important; border-bottom: 1px solid var(--border) !important;
   }
+  /* Team header inline meta — Lead/PM relocated 2026-05-07 (was per-task columns) */
+  .team-header .team-count {
+    font-weight: 400; font-size: 11px; opacity: 0.6;
+  }
+  .team-header .team-people {
+    font-weight: 400; font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: none; letter-spacing: normal;
+  }
+  .team-header .team-people .role { color: var(--text-muted); }
 
   .task-row:hover td.info-col { background: #222a3d; }
   .task-row:hover td.gantt-col { background: #222a3d; }
@@ -1070,8 +1080,6 @@ function buildTimeline(tasks, teamFilter) {
     '<thead><tr>' +
     '<th class="info-col sticky-pri" style="width:42px">Pri' + tip('Priority from Notion (P0 \u2192 P1 \u2192 P2)') + '</th>' +
     '<th class="info-col sticky-task" style="width:260px">Task' + tip('Task name from Jira \u2192 Notion \u2014 synced via Realistic Scenario sheet') + '</th>' +
-    '<th class="info-col" data-col="lead" style="width:90px" title="Click to hide">Lead' + tip('Engineering lead \u2014 from Realistic Scenario sheet') + '</th>' +
-    '<th class="info-col" data-col="pm" style="width:90px" title="Click to hide">PM' + tip('PM owner \u2014 from Notion DB') + '</th>' +
     '<th class="info-col" data-col="prd" style="width:50px" title="Click to hide">PRD' + tip('PRD status from Notion: \u2713=done, Draft, Rev=In Review, N=missing, \u2212=N/A') + '</th>' +
     '<th class="info-col" data-col="risk" style="width:50px" title="Click to hide">Risk' + tip('Risk factor \u2014 from Realistic Scenario sheet (Low / Medium / High)') + '</th>' +
     '<th class="info-col" data-col="start" style="width:55px" title="Click to hide"><span class="hdr-pre">Plan</span>Start' + tip('Planned start date \u2014 from Realistic Scenario sheet') + '</th>' +
@@ -1114,8 +1122,7 @@ function buildTimeline(tasks, teamFilter) {
     } else {
       prdBadge = '<span class="prd-badge prd-missing">N</span>';
     }
-    const pmDisplay = t.pm ? t.pm.split(',')[0].trim().split(/\s+/)[0] : '-';
-    const leadDisplay = t.lead ? t.lead.trim().split(/\s+/)[0] : '-';
+    // Lead/PM moved to team header (2026-05-07). Tooltip still keeps the per-task value via pmFull.
     const pmFull = t.pm || '-';
     const ttData = {
       task:t.task, epic:t.epic, lead:t.lead, allocation:t.allocation,
@@ -1189,8 +1196,6 @@ function buildTimeline(tasks, teamFilter) {
     return '<tr class="task-row' + (isAtRisk?' at-risk':'') + '" data-epic="' + (t.epic||'') + '" data-task="' + (t.task||'').replace(/"/g,'&quot;') + '" data-tt=\'' + tt + '\'>' +
       '<td class="info-col sticky-pri" style="' + priStyle + '"><span class="priority-badge ' + priCls + '">' + (t.priority||'-') + '</span></td>' +
       '<td class="info-col sticky-task task-name-cell">' + link + '</td>' +
-      '<td class="info-col date-cell" data-col="lead" title="' + (t.lead||'') + '">' + leadDisplay + '</td>' +
-      '<td class="info-col date-cell" data-col="pm" title="' + pmFull + '">' + pmDisplay + '</td>' +
       '<td class="info-col" data-col="prd">' + prdBadge + '</td>' +
       '<td class="info-col" data-col="risk">' + buildRiskBadge(t.risk) + '</td>' +
       '<td class="info-col date-cell" data-col="start">' + fmtShort(sd) + '</td>' +
@@ -1221,7 +1226,9 @@ function buildTimeline(tasks, teamFilter) {
       var teamTasks = sortTaskList(grouped[team] || []);
       if (!teamTasks.length) return;
       var color = TEAM_COLORS[team] || '#64748b';
-      var teamColspan = 10 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
+      // Lead/PM moved out of per-task columns into here (2026-05-07).
+      // Base colspan dropped from 10 to 8; showExtra and showActual modifiers unchanged.
+      var teamColspan = 8 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
       // Continue the Today line through the team-header row so it doesn't
       // visibly break at every team boundary.
       var teamTodayLine = '';
@@ -1229,9 +1236,16 @@ function buildTimeline(tasks, teamFilter) {
       if (teamTodayDays >= 0 && teamTodayDays <= totalDays) {
         teamTodayLine = '<div class="today-line" style="left:' + dayToPx(teamTodayDays) + 'px"></div>';
       }
+      var ppl = teamPeople(teamTasks);
+      var peopleHtml = '';
+      if (ppl.leads.length) peopleHtml += '<span class="role"> · Lead:</span> ' + htmlSafe(ppl.leads.join(', '));
+      if (ppl.pms.length)   peopleHtml += '<span class="role"> · PM:</span> '   + htmlSafe(ppl.pms.join(', '));
       rows += '<tr class="team-header">' +
-        '<td class="info-col" colspan="' + teamColspan + '" style="color:' + color + ';border-left:3px solid ' + color + '">' + team +
-        ' <span style="font-weight:400;font-size:11px;opacity:0.6">(' + teamTasks.length + ')</span></td>' +
+        '<td class="info-col" colspan="' + teamColspan + '" style="color:' + color + ';border-left:3px solid ' + color + '">' +
+          team +
+          ' <span class="team-count">(' + teamTasks.length + ')</span>' +
+          (peopleHtml ? '<span class="team-people">' + peopleHtml + '</span>' : '') +
+        '</td>' +
         '<td class="gantt-col">' + teamTodayLine + '</td></tr>';
       teamTasks.forEach(function(t) {
         rows += buildTaskRow(t, color, false);
@@ -1416,6 +1430,31 @@ function wrapPrdLink(badgeHtml, prdUrl) {
   if (!prdUrl) return badgeHtml;
   return '<a class="prd-badge-link" href="' + prdUrl +
     '" target="_blank" rel="noopener" title="Open PRD">' + badgeHtml + '</a>';
+}
+
+// Minimal HTML escaper for body-context text (names from Sheets / Notion).
+function htmlSafe(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Collect unique Lead and PM values across a team's task set. PM field is
+// comma-separated for multi-PM tasks. Used by the team-header row to surface
+// the team's people inline (2026-05-07).
+function teamPeople(teamTasks) {
+  var leads = [], pms = [];
+  teamTasks.forEach(function(t) {
+    if (t.lead) {
+      var L = t.lead.trim();
+      if (L && leads.indexOf(L) === -1) leads.push(L);
+    }
+    if (t.pm) {
+      t.pm.split(',').forEach(function(p) {
+        var P = p.trim();
+        if (P && pms.indexOf(P) === -1) pms.push(P);
+      });
+    }
+  });
+  return { leads: leads, pms: pms };
 }
 
 function programSpanWeeks() {
