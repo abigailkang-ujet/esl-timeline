@@ -16,6 +16,7 @@ Give this file to Claude and ask:
 - Never use backticks (template literals) in index.html → breaks HtmlService parsing
 - Never use static `<svg>` tags in HTML → generate SVG dynamically via JS
 - Never hardcode the Notion token in code → store in Apps Script Script Properties
+- **Jira REST search**: Atlassian sunset GET `/rest/api/3/search` on 2025-05-01. Use POST `/rest/api/3/search/jql` with a JSON body (`fields` is now an array, not a comma-separated string). The deprecated GET form returns HTTP 410.
 
 ---
 
@@ -253,6 +254,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - 2-line wrap via inner `<span class="task-name-wrap">` — `display:-webkit-box`, `-webkit-line-clamp:2`, `max-width:260px`, `word-break:break-word`
 - **Important**: `max-width` on `<td>` in a table with `auto` layout doesn't work — must apply to an inner element
 - `td.task-name-cell`: `white-space:normal`, `overflow-wrap:break-word`, `line-height:1.35`
+- **Hover (2026-05-07)**: on `td.task-name-cell:hover` the wrap drops the line-clamp (`display:block; -webkit-line-clamp:unset; overflow:visible`) and the full task name renders in place — no separate tooltip. The cell grows vertically; the row reflows. Mirrors the status-dot / bar-hover expand-in-place pattern. The earlier JS handler that flew an `[Epic] task` mini-tooltip out of the cursor is gone; only the `onNameCell` flag remains so the row tooltip is suppressed while the cursor is on the name cell.
 
 ### Schedule Badge (`buildScheduleBadge`) — status-driven (2026-04-30)
 **Branching is keyed on `t.status`, NOT on the presence of `actualStart` / `actualEnd`.** Earlier logic trusted those fields as "actual" indicators, but Jira/Notion's "Start-End Date" property can carry target dates for not-yet-started tickets and stale dates after a status revert. Reading status first prevents To Do tickets from being misclassified as Ahead/Behind.
@@ -266,20 +268,16 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - Per-task hover (`title` on the chip) explains the specific reason in concrete dates and day counts. Generic rule recap lives on the column header `tip()`.
 - Both functions to update together: `getScheduleStatus(t)` and `explainSchedule(t, s)`.
 
-### Tooltip
-- Fields: lead, allocation, headcount, **Plan Start / Plan End** (always), **Actual Start / Actual End** (only when present), Ideal, effort, risk, PM, PMO, PRD, status, blocking, blockedBy, note
-- Plan Start/End rows always render (`-` when missing). Actual Start/End rows are conditional on `d.actualStart` / `d.actualEnd` being non-empty — keeps tooltip compact for not-yet-started tasks. Tooltip shows actuals regardless of `Show Actual` toggle state (safety net).
-- **Size**: max-width 300px, padding 10px 12px, font-size 12px
+### Tooltip (slimmed 2026-05-07)
+- **Row tooltip fields (final)**: task title, **Allocation**, **Effort**, **Blocking**, **Blocked by**. Everything else (Lead, dates, Ideal, Risk, Schedule, Status, PM, PMO, PRD) is already visible elsewhere on the row — column, team header, schedule chip, status dot, PRD badge, or bar hover label — so duplicating it here would just be noise.
+- **Delay**: 8 seconds (`8000ms`). Two timer paths now both at 8000: the row `mouseenter` initial timer, and the name-cell `mouseleave` restart. User-facing rationale is "deliberate hover" — brief mouse passes during scanning don't pop the tooltip.
+- **Size**: max-width 300px, padding 10px 12px, font-size 12px.
 - **Smart positioning**: flips up/left automatically when near viewport edges
   ```javascript
   if (left + ttW > window.innerWidth  - 8) left = e.clientX - ttW - 16;
   if (top  + ttH > window.innerHeight - 8) top  = e.clientY - ttH - 10;
   ```
-- **Hover behavior (두 가지)**:
-  - task name 셀 (`td.task-name-cell`): 브라우저 기본 `title` 툴팁만 표시, 커스텀 다크박스 없음. `onNameCell=true` 플래그로 full tooltip 완전 차단
-  - 나머지 셀: 3초 후 `showRowTooltip(row)` 전체 상세 표시
-  - name cell mouseleave 시 3s 타이머 재시작 (다른 셀로 이동해도 full tooltip 작동)
-  - `showRowTooltip(row)` — tooltip HTML 빌드 로직을 별도 함수로 분리 (중복 제거)
+- **Hover patterns now expand inline, not via JS tooltip** (project convention as of 2026-05-07): status dot, bar segments, and task name cell all use CSS `:hover` to expand in place. Only the slim row tooltip still uses the JS positioned-by-cursor flow. Don't reintroduce JS-driven floating tooltips for new affordances; reach for `:hover` + display/size/opacity transitions on the existing element first.
 - Column header tooltips:
   - Schedule: Jira actual dates via Notion, not Notion-only
   - Priority: P0/P1/P2 only (Low removed)
@@ -289,7 +287,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Source**: Jira `issuelinks` via `fetchJiraLive` (5-min cache). Notion-synced `t.blocking` / `t.blockedBy` remain as the graceful fallback if Jira fetch fails. `t.relates` is Jira-only — Notion has no Relates relation.
 - **Two link types rendered**:
   - **Blocks** (directional, `t.blocking[]` / `t.blockedBy[]`) — amber dashed bezier `#e5a44b`, dasharray `5 3`, width 1.5, arrowhead via `marker-end`. Goes from source-task bar end → target-task bar start.
-  - **Relates** (bidirectional, `t.relates[]`) — blue dotted bezier `#5b8af5`, dasharray `1 3`, width 1.2, opacity 0.7, **no arrowhead**. Anchored at each task's plan start (left edge of the bar).
+  - **Relates** (bidirectional, `t.relates[]`) — blue dotted bezier `#5b8af5`, **stroke-linecap round** with dasharray `0.1 5` (renders as crisp circular dots, diameter = stroke-width), width 1.8, opacity 0.95, **no arrowhead**. Anchored at each task's plan start (left edge of the bar). Earlier spec used `dasharray '1 3'` / width 1.2 / opacity 0.7 — too faint on the live chart, bumped 2026-05-07.
 - Other Jira link types (Cloners, Duplicate, Causes, etc.) are parsed and ignored — only Blocks and Relates render.
 - **Dedup**: `arrowSet` for Blocks (`'A->B'` key, both halves of a Blocks pair populate independently in Jira); `relatesSet` for Relates (canonical sorted-pair key `'min<->max'`, since Relates is bidirectional and both ends record the link). Pairs already drawn as Blocks skip the Relates draw — Blocks is the more specific signal.
 - **Self-link guard**: `t.relates` entries equal to `t.epic` are skipped.
@@ -307,15 +305,15 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
   - **In Progress + no explicit `actualEnd`**: `.gantt-actual` adds class `in-progress-ongoing` — CSS `mask-image` fades the right edge so the endpoint reads as "ongoing, today as soft endpoint."
   - **Effective dates** via `effectiveActualStart(t)` / `effectiveActualEnd(t)`: explicit `t.actualStart` / `t.actualEnd` win first, then `t.statusChangedAt` (Jira `statuscategorychangedate`) for start when status is In Progress / Closed, then `t.resolvedAt` (Jira `resolutiondate`) for end when Closed, then today for end when In Progress.
   - All segments carry the same `onclick` → opens Jira. Row-level tooltip annotates fallback sources (e.g. `~5/15 (resolved)` when end came from `resolvedAt` rather than explicit `actualEnd`).
-- **Bar click**: if `epicUrl` exists, `window.open(epicUrl, '_blank')` — cursor:pointer, title "Open in Jira"
-- **Status dot**: in gantt-col, position:absolute left:6px, shows status name on hover
+- **Bar click**: if `epicUrl` exists, `window.open(epicUrl, '_blank')` — cursor:pointer. Native `title` attr is gone; the inline `.bar-label` (see below) covers the visual hint.
+- **Bar hover label (2026-05-07)**: each segment renders an inner `<span class="bar-label">` and grows vertically on hover (6→16px split, 10→18px single) to reveal the date string in white, e.g. `Plan: 4/16 → 5/28`, `Actual: 4/16 → today`, `Late: 5/28 → 6/15`. Built via `seg(left, width, extraStyle, klass, label)` helper. Plan segment darkens its grey bg on hover for white-text contrast; overrun drops the red hatch and switches to solid red on hover. **`overflow: hidden` was deliberately dropped** so labels on narrow bars extend past the bar edges; a strong text-shadow (`0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55)`) keeps the label readable wherever it lands.
+- **Status dot (CSS expand 2026-05-07)**: in gantt-col, `position:absolute left:6px`, default 7×7 colored circle. On `:hover` the dot expands into a same-color pill (`width:auto; height:16px; border-radius:8px`) revealing the status text inside, like the Risk badge's letter→word swap. No JS tooltip — the dot itself is the affordance. Background color is set inline via `style="background:..."` based on `statusColor()`; the `.status-text` child fades in via opacity.
 - **TIMELINE_END**: `new Date('2026-10-31')`
 
 ### Team Header
 - Background: same as task rows (`--bg-elevated` dark / `--bg-card` light) — see "Row background" above. `border-left: 3px solid teamColor`, text in team color provide the only visual grouping cue.
-- **Inline meta (2026-05-07)**: header reads `<TEAM> (count) · Lead: <names> · PM: <names>`. Lead and PM were per-task columns until this change; they're identical across tasks within a team in our data, so consolidating saved 180 px of table width that the Gantt area now uses. The `teamPeople(teamTasks)` helper deduplicates and trims names; `t.pm` is split on commas first (multi-PM tasks). If a team has inconsistent values across tasks (rare data drift), they're comma-joined so nothing is hidden. Empty Lead or PM omits the corresponding label.
+- **Inline meta (2026-05-07; PMO added later same day)**: header reads `<TEAM> (count) · Lead: <names> · PM: <names> · PMO: <names>`. Lead, PM, and PMO were per-task columns or tooltip rows; they're identical across tasks within a team in our data, so consolidating saved 180 px of table width that the Gantt area now uses, and frees the slim row tooltip from carrying PMO. The `teamPeople(teamTasks)` helper deduplicates leads, pms, and pmos; `t.pm` and `t.pmo` are split on commas first (multi-owner tasks). Inconsistent values across tasks (rare data drift) are comma-joined so nothing is hidden. Empty Lead / PM / PMO omits the corresponding label.
 - `team-count`, `team-people`, `team-people .role` CSS classes carry the visual styling — count and meta line are smaller / lighter than the team name, names use normal text-transform / letter-spacing (so proper nouns aren't UPPERCASED by the parent rule).
-- Per-task tooltip's Lead / PM Owner rows still render — individual values stay auditable on hover.
 - Team-header `colspan` base value: `8` (was 10 before Lead/PM removal). `+2 if showExtra` (Alloc, Status under team filter) and `+2 if showActual` (Act Start, Act End) modifiers unchanged.
 - `hexAlpha(hex, a)` helper converts hex → `rgba(r,g,b,a)` (available but not used on header bg)
 
@@ -368,7 +366,10 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 | Task name not wrapping to 2 lines | `max-width` on `<td>` ignored in table auto-layout — cell expands horizontally | Use inner `<span class="task-name-wrap">` with `max-width` + `-webkit-line-clamp:2` |
 | Dependency arrows not drawing | Task has `blockedBy` but blocker's `blocking` field empty (one-directional Notion relation) | `drawDependencies` now iterates both `t.blocking` and `t.blockedBy`; `arrowSet` prevents double-draw |
 | Team header / task row look same | Both using `--bg-card` | Task rows → `--bg-elevated`; team header → `--bg-card` (light mode: reversed) |
-| Task name hover shows full detail immediately | Task name cell used same `showRowTooltip` with 400ms delay | `onNameCell` flag blocks full tooltip; name cell uses browser native `title` tooltip only |
+| Task name hover shows full detail immediately | Task name cell used same `showRowTooltip` with 400ms delay | (2026-05-07) Replaced entirely: hover the cell drops the 2-line clamp via CSS so the full name expands in place; no separate tooltip. `onNameCell` flag still suppresses the slim row tooltip while the cursor is on the name cell. |
+| Jira live-sync returning HTTP 410 (all tasks fall back to Notion) | Atlassian sunset GET `/rest/api/3/search` on 2025-05-01 | Migrate `fetchJiraLive` to POST `/rest/api/3/search/jql` with JSON body (`fields` is now an array, not a comma-separated string). |
+| Bar hover date label clipped on narrow bars | `.gantt-bar` etc. had `overflow: hidden` so the centered `.bar-label` was cropped to the bar's width | Drop `overflow: hidden` on the bar segments; rely on stacked text-shadow (`0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55)`) so the label remains legible when it extends past the bar edges. |
+| Relates link almost invisible on screen | Style 2 spec used `dasharray '1 3'` + `stroke-width 1.2` + `opacity 0.7` — dots too small and faint | (2026-05-07) Bumped to `stroke-width 1.8`, `stroke-linecap round`, `dasharray '0.1 5'` (round-capped circles), `opacity 0.95`. Still distinct from amber dashed Blocks. |
 | setupDailyTrigger shows spinner forever | `getUi().alert()` pops up on spreadsheet tab, not editor tab | Normal — check spreadsheet tab for the alert popup |
 
 ---
