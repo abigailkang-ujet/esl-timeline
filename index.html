@@ -370,6 +370,35 @@
   .task-row:hover .gantt-plan,
   .task-row:hover .gantt-actual,
   .task-row:hover .gantt-overrun { opacity: 1; }
+
+  /* Bar hover label — small floating chip above the bar showing plan/actual dates. */
+  .gantt-bar::after,
+  .gantt-plan::after,
+  .gantt-actual::after,
+  .gantt-overrun::after {
+    content: attr(data-label);
+    position: absolute;
+    bottom: 100%; left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 6px;
+    background: rgba(15,23,42,0.96);
+    color: #e2e8f0;
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    border: 1px solid rgba(148,163,184,0.18);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+    z-index: 20;
+  }
+  .gantt-bar:hover::after,
+  .gantt-plan:hover::after,
+  .gantt-actual:hover::after,
+  .gantt-overrun:hover::after { opacity: 1; }
   .ideal-diamond {
     position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg);
     width: 8px; height: 8px; background: var(--amber); border: 1px solid rgba(229,164,75,0.5); z-index: 3;
@@ -1179,41 +1208,48 @@ function buildTimeline(tasks, teamFilter) {
     const actSd_   = parseDate(actSdStr);
     const actEd_   = parseDate(actEdStr);
     const hasActual = actSd_ && actEd_;
-    // Helper: build the style+onclick attrs for one segment.
-    function seg(left, width, extraStyle, klass) {
+    // Helper: build the style+onclick attrs for one segment. `label` becomes
+    // the CSS hover chip (data-label attr → ::after content).
+    function seg(left, width, extraStyle, klass, label) {
       var base = 'left:' + left + 'px;width:' + Math.max(3, width) + 'px;' + extraStyle;
+      var labelAttr = label ? ' data-label="' + label.replace(/"/g, '&quot;') + '"' : '';
       if (t.epicUrl) {
-        return '<div class="' + klass + '" style="' + base + 'cursor:pointer;" onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')" title="Open in Jira"></div>';
+        return '<div class="' + klass + '"' + labelAttr + ' style="' + base + 'cursor:pointer;" onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')"></div>';
       }
-      return '<div class="' + klass + '" style="' + base + '"></div>';
+      return '<div class="' + klass + '"' + labelAttr + ' style="' + base + '"></div>';
     }
+
+    var planLabel = (sd && ed) ? 'Plan: ' + fmtShort(sd) + ' → ' + fmtShort(ed) : '';
 
     if (!hasActual && sd && ed) {
       // Case 1 — plan-only single bar (legacy class .gantt-bar)
       const left = dayToPx(dayOffset(sd));
       const width = Math.max(3, dayToPx(dayOffset(ed)) - left);
-      ganttInner += seg(left, width, 'background:' + color + ';', 'gantt-bar');
+      ganttInner += seg(left, width, 'background:' + color + ';', 'gantt-bar', planLabel);
     } else if (hasActual) {
       // Case 2/3 — half-split
       if (sd && ed) {
         const planLeft = dayToPx(dayOffset(sd));
         const planWidth = dayToPx(dayOffset(ed)) - planLeft;
-        ganttInner += seg(planLeft, planWidth, '', 'gantt-plan');
+        ganttInner += seg(planLeft, planWidth, '', 'gantt-plan', planLabel);
       }
       const actLeft  = dayToPx(dayOffset(actSd_));
       const actEdPx  = dayToPx(dayOffset(actEd_));
       const planEdPx = ed ? dayToPx(dayOffset(ed)) : null;
       const isOngoing = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
       const actClass = 'gantt-actual' + (isOngoing ? ' in-progress-ongoing' : '');
+      const actEndStr = isOngoing ? 'today' : fmtShort(actEd_);
+      const actLabel  = 'Actual: ' + fmtShort(actSd_) + ' → ' + actEndStr;
 
       if (planEdPx !== null && actEdPx > planEdPx) {
         // Overrun — split actual into within-plan + overrun
         if (actLeft < planEdPx) {
-          ganttInner += seg(actLeft, planEdPx - actLeft, 'background:' + color + ';border-bottom-right-radius:0;', actClass);
+          ganttInner += seg(actLeft, planEdPx - actLeft, 'background:' + color + ';border-bottom-right-radius:0;', actClass, actLabel);
         }
-        ganttInner += seg(planEdPx, actEdPx - planEdPx, '', 'gantt-overrun');
+        const overrunLabel = 'Overrun: planned ' + fmtShort(ed) + ' · actual ' + actEndStr;
+        ganttInner += seg(planEdPx, actEdPx - planEdPx, '', 'gantt-overrun', overrunLabel);
       } else {
-        ganttInner += seg(actLeft, actEdPx - actLeft, 'background:' + color + ';', actClass);
+        ganttInner += seg(actLeft, actEdPx - actLeft, 'background:' + color + ';', actClass, actLabel);
       }
     }
     if (id) ganttInner += '<div class="ideal-diamond" style="left:' + dayToPx(dayOffset(id)) + 'px"></div>';
@@ -1267,6 +1303,7 @@ function buildTimeline(tasks, teamFilter) {
       var peopleHtml = '';
       if (ppl.leads.length) peopleHtml += '<span class="role"> · Lead:</span> ' + htmlSafe(ppl.leads.join(', '));
       if (ppl.pms.length)   peopleHtml += '<span class="role"> · PM:</span> '   + htmlSafe(ppl.pms.join(', '));
+      if (ppl.pmos.length)  peopleHtml += '<span class="role"> · PMO:</span> '  + htmlSafe(ppl.pmos.join(', '));
       rows += '<tr class="team-header">' +
         '<td class="info-col" colspan="' + teamColspan + '" style="color:' + color + ';border-left:3px solid ' + color + '">' +
           team +
@@ -1291,46 +1328,18 @@ function buildTimeline(tasks, teamFilter) {
   const tooltip = document.getElementById('tooltip');
   var tooltipTimer = null;
 
+  // Slim row tooltip: only the fields that aren't already visible elsewhere on
+  // the row (Allocation, Effort, dependencies). Every other piece is in a
+  // column, the team header, the schedule chip, the status dot, or the bar
+  // hover label, so duplicating it here would just be noise.
   function showRowTooltip(row) {
     try {
       const d = JSON.parse(row.dataset.tt);
       let html = '<div class="tt-title">' + d.task + '</div>';
-      if (d.epic) html += '<div class="tt-row"><span class="tt-label">Epic</span><span class="tt-value">' + d.epic + '</span></div>';
-      html += '<div class="tt-section">Schedule</div>';
-      if (d.lead) html += '<div class="tt-row"><span class="tt-label">Lead</span><span class="tt-value">' + d.lead + '</span></div>';
       if (d.allocation) html += '<div class="tt-row"><span class="tt-label">Allocation</span><span class="tt-value">' + d.allocation + '</span></div>';
-      if (d.headcount) html += '<div class="tt-row"><span class="tt-label">Headcount</span><span class="tt-value">' + d.headcount + '</span></div>';
-      html += '<div class="tt-row"><span class="tt-label">Plan Start</span><span class="tt-value">' + (d.start||'-') + '</span></div>';
-      html += '<div class="tt-row"><span class="tt-label">Plan End</span><span class="tt-value">' + (d.end||'-') + '</span></div>';
-      // Actual Start/End rows: explicit dates win, otherwise annotate fallback source.
-      // All Jira date strings get sliced to YYYY-MM-DD — the field can be either Date
-      // (already short) or DateTime (long ISO with time/zone). Slicing is idempotent on
-      // already-short values and trims the noisy time-zone tail off DateTime values.
-      var ttStatusLower = (d.status || '').toLowerCase().trim();
-      if (d.actualStart) {
-        html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.actualStart.slice(0, 10) + '</span></div>';
-      } else if (d.statusChangedAt && (ttStatusLower === 'in progress' || /closed|done|complete/.test(ttStatusLower))) {
-        html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">~' + d.statusChangedAt.slice(0, 10) + ' <span style="color:var(--text-muted);font-size:10px">(status transition)</span></span></div>';
-      }
-      if (d.actualEnd) {
-        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.actualEnd.slice(0, 10) + '</span></div>';
-      } else if (/closed|done|complete/.test(ttStatusLower) && d.resolvedAt) {
-        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">~' + d.resolvedAt.slice(0, 10) + ' <span style="color:var(--text-muted);font-size:10px">(resolved)</span></span></div>';
-      } else if (ttStatusLower === 'in progress') {
-        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value" style="color:var(--text-muted)">in progress (today)</span></div>';
-      }
-      html += '<div class="tt-row"><span class="tt-label">Ideal</span><span class="tt-value">' + (d.ideal||'-') + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Effort</span><span class="tt-value">' + d.effort + ' weeks</span></div>';
-      if (d.risk) html += '<div class="tt-row"><span class="tt-label">Risk</span><span class="tt-value">' + d.risk + '</span></div>';
-      html += '<div class="tt-section">PM / PRD</div>';
-      if (d.pm) html += '<div class="tt-row"><span class="tt-label">PM Owner</span><span class="tt-value">' + d.pm + '</span></div>';
-      if (d.pmo) html += '<div class="tt-row"><span class="tt-label">PMO</span><span class="tt-value">' + d.pmo + '</span></div>';
-      html += '<div class="tt-row"><span class="tt-label">PRD Done?</span><span class="tt-value">' + (d.prd||'N/A') + '</span></div>';
-      if (d.prdUrl) html += '<div class="tt-row"><span class="tt-label">PRD</span><span class="tt-value"><a class="tt-link" href="' + d.prdUrl + '" target="_blank">Open PRD</a></span></div>';
-      if (d.status) html += '<div class="tt-row"><span class="tt-label">Status</span><span class="tt-value">' + d.status + '</span></div>';
       if (d.blocking && d.blocking.length) html += '<div class="tt-row"><span class="tt-label">Blocking</span><span class="tt-value" style="color:#fbbf24">' + d.blocking.join(', ') + '</span></div>';
       if (d.blockedBy && d.blockedBy.length) html += '<div class="tt-row"><span class="tt-label">Blocked by</span><span class="tt-value" style="color:#f87171">' + d.blockedBy.join(', ') + '</span></div>';
-      if (d.note) html += '<div class="tt-section">Note</div><div style="color:#94a3b8;font-size:11px;line-height:1.5">' + d.note + '</div>';
       tooltip.innerHTML = html;
       tooltip.classList.add('show');
     } catch(e) {}
@@ -1342,7 +1351,7 @@ function buildTimeline(tasks, teamFilter) {
     row.addEventListener('mouseenter', function() {
       tooltipTimer = setTimeout(function() {
         if (!onNameCell) showRowTooltip(row);
-      }, 3000);
+      }, 400);
     });
 
     // Task name cell: name-only instantly; full tooltip never shows while here
@@ -1367,7 +1376,7 @@ function buildTimeline(tasks, teamFilter) {
       nameCell.addEventListener('mouseleave', function() {
         onNameCell = false;
         tooltip.classList.remove('show');
-        tooltipTimer = setTimeout(function() { if (!onNameCell) showRowTooltip(row); }, 3000);
+        tooltipTimer = setTimeout(function() { if (!onNameCell) showRowTooltip(row); }, 400);
       });
     }
 
@@ -1452,7 +1461,7 @@ function htmlSafe(s) {
 // comma-separated for multi-PM tasks. Used by the team-header row to surface
 // the team's people inline (2026-05-07).
 function teamPeople(teamTasks) {
-  var leads = [], pms = [];
+  var leads = [], pms = [], pmos = [];
   teamTasks.forEach(function(t) {
     if (t.lead) {
       var L = t.lead.trim();
@@ -1464,8 +1473,14 @@ function teamPeople(teamTasks) {
         if (P && pms.indexOf(P) === -1) pms.push(P);
       });
     }
+    if (t.pmo) {
+      t.pmo.split(',').forEach(function(p) {
+        var P = p.trim();
+        if (P && pmos.indexOf(P) === -1) pmos.push(P);
+      });
+    }
   });
-  return { leads: leads, pms: pms };
+  return { leads: leads, pms: pms, pmos: pmos };
 }
 
 function programSpanWeeks() {
