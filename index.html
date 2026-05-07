@@ -303,6 +303,36 @@
     top: 50%; transform: translateY(-50%); opacity: 0.8; min-width: 4px; z-index: 2;
   }
   .task-row:hover .gantt-bar { opacity: 1; }
+
+  /* Dual-bar Gantt — half-height plan (top) + actual (bottom) + overrun.
+     Only used when effective actual data exists; To Do tasks keep .gantt-bar. */
+  .gantt-plan {
+    position: absolute; top: 50%; height: 6px;
+    background: rgba(148,163,184,0.55);
+    transform: translateY(-100%);
+    border-top-left-radius: 6px; border-top-right-radius: 6px;
+    z-index: 1; min-width: 3px;
+  }
+  .gantt-actual {
+    position: absolute; top: 50%; height: 6px;
+    border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;
+    opacity: 0.92; z-index: 2; min-width: 3px;
+  }
+  .gantt-actual.in-progress-ongoing {
+    -webkit-mask-image: linear-gradient(90deg, black 70%, transparent 100%);
+            mask-image: linear-gradient(90deg, black 70%, transparent 100%);
+  }
+  .gantt-overrun {
+    position: absolute; top: 50%; height: 6px;
+    background-image: repeating-linear-gradient(45deg,
+      rgba(244,112,103,0.55), rgba(244,112,103,0.55) 4px,
+      rgba(244,112,103,0.20) 4px, rgba(244,112,103,0.20) 8px);
+    border-bottom-right-radius: 6px;
+    z-index: 3; min-width: 3px;
+  }
+  .task-row:hover .gantt-plan,
+  .task-row:hover .gantt-actual,
+  .task-row:hover .gantt-overrun { opacity: 1; }
   .ideal-diamond {
     position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg);
     width: 8px; height: 8px; background: var(--amber); border: 1px solid rgba(229,164,75,0.5); z-index: 3;
@@ -1092,6 +1122,7 @@ function buildTimeline(tasks, teamFilter) {
       headcount:t.headcount, pm:pmFull, pmo:t.pmo, prd:t.prd, prdUrl:t.prdUrl,
       start:t.start, end:t.end, ideal:id?fmtFull(id):'', effort:t.effort,
       actualStart:t.actualStart||'', actualEnd:t.actualEnd||'',
+      statusChangedAt:t.statusChangedAt||'', resolvedAt:t.resolvedAt||'',
       risk:t.risk, note:t.note, status:t.status,
       blocking:t.blocking||[], blockedBy:t.blockedBy||[],
     };
@@ -1105,11 +1136,54 @@ function buildTimeline(tasks, teamFilter) {
     const todayDays = dayOffset(today);
     if (todayDays >= 0 && todayDays <= totalDays)
       ganttInner += '<div class="today-line" style="left:' + dayToPx(todayDays) + 'px"></div>';
-    if (sd && ed) {
+    // ── Bar rendering ──
+    // Case 1 (no effective actual data): single full-height plan bar (existing behaviour).
+    // Case 2/3 (effective actual present): half-split — plan grey on top, actual on bottom,
+    // overrun (red hatch) past plan-end if applicable. See spec 2026-05-07.
+    const actSdStr = effectiveActualStart(t);
+    const actEdStr = effectiveActualEnd(t);
+    const actSd_   = parseDate(actSdStr);
+    const actEd_   = parseDate(actEdStr);
+    const hasActual = actSd_ && actEd_;
+    const clickAttrs = t.epicUrl
+      ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')" title="Open in Jira" cursor:pointer'
+      : '';
+    // Helper: build the style+onclick attrs for one segment.
+    function seg(left, width, extraStyle, klass) {
+      var base = 'left:' + left + 'px;width:' + Math.max(3, width) + 'px;' + extraStyle;
+      if (t.epicUrl) {
+        return '<div class="' + klass + '" style="' + base + 'cursor:pointer;" onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')" title="Open in Jira"></div>';
+      }
+      return '<div class="' + klass + '" style="' + base + '"></div>';
+    }
+
+    if (!hasActual && sd && ed) {
+      // Case 1 — plan-only single bar (legacy class .gantt-bar)
       const left = dayToPx(dayOffset(sd));
       const width = Math.max(3, dayToPx(dayOffset(ed)) - left);
-      var barClick = t.epicUrl ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')" style="left:' + left + 'px;width:' + width + 'px;background:' + color + ';cursor:pointer;" title="Open in Jira"' : ' style="left:' + left + 'px;width:' + width + 'px;background:' + color + ';"';
-      ganttInner += '<div class="gantt-bar"' + barClick + '></div>';
+      ganttInner += seg(left, width, 'background:' + color + ';', 'gantt-bar');
+    } else if (hasActual) {
+      // Case 2/3 — half-split
+      if (sd && ed) {
+        const planLeft = dayToPx(dayOffset(sd));
+        const planWidth = dayToPx(dayOffset(ed)) - planLeft;
+        ganttInner += seg(planLeft, planWidth, '', 'gantt-plan');
+      }
+      const actLeft  = dayToPx(dayOffset(actSd_));
+      const actEdPx  = dayToPx(dayOffset(actEd_));
+      const planEdPx = ed ? dayToPx(dayOffset(ed)) : null;
+      const isOngoing = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
+      const actClass = 'gantt-actual' + (isOngoing ? ' in-progress-ongoing' : '');
+
+      if (planEdPx !== null && actEdPx > planEdPx) {
+        // Overrun — split actual into within-plan + overrun
+        if (actLeft < planEdPx) {
+          ganttInner += seg(actLeft, planEdPx - actLeft, 'background:' + color + ';border-bottom-right-radius:0;', actClass);
+        }
+        ganttInner += seg(planEdPx, actEdPx - planEdPx, '', 'gantt-overrun');
+      } else {
+        ganttInner += seg(actLeft, actEdPx - actLeft, 'background:' + color + ';', actClass);
+      }
     }
     if (id) ganttInner += '<div class="ideal-diamond" style="left:' + dayToPx(dayOffset(id)) + 'px"></div>';
     ganttInner += '</div>';
@@ -1190,8 +1264,20 @@ function buildTimeline(tasks, teamFilter) {
       if (d.headcount) html += '<div class="tt-row"><span class="tt-label">Headcount</span><span class="tt-value">' + d.headcount + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Plan Start</span><span class="tt-value">' + (d.start||'-') + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Plan End</span><span class="tt-value">' + (d.end||'-') + '</span></div>';
-      if (d.actualStart) html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.actualStart + '</span></div>';
-      if (d.actualEnd)   html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.actualEnd + '</span></div>';
+      // Actual Start/End rows: explicit dates win, otherwise annotate fallback source.
+      var ttStatusLower = (d.status || '').toLowerCase().trim();
+      if (d.actualStart) {
+        html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.actualStart + '</span></div>';
+      } else if (d.statusChangedAt && (ttStatusLower === 'in progress' || /closed|done|complete/.test(ttStatusLower))) {
+        html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">~' + d.statusChangedAt.slice(0, 10) + ' <span style="color:var(--text-muted);font-size:10px">(status transition)</span></span></div>';
+      }
+      if (d.actualEnd) {
+        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.actualEnd + '</span></div>';
+      } else if (/closed|done|complete/.test(ttStatusLower) && d.resolvedAt) {
+        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">~' + d.resolvedAt.slice(0, 10) + ' <span style="color:var(--text-muted);font-size:10px">(resolved)</span></span></div>';
+      } else if (ttStatusLower === 'in progress') {
+        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value" style="color:var(--text-muted)">in progress (today)</span></div>';
+      }
       html += '<div class="tt-row"><span class="tt-label">Ideal</span><span class="tt-value">' + (d.ideal||'-') + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Effort</span><span class="tt-value">' + d.effort + ' weeks</span></div>';
       if (d.risk) html += '<div class="tt-row"><span class="tt-label">Risk</span><span class="tt-value">' + d.risk + '</span></div>';
@@ -1350,6 +1436,26 @@ function programSpanWeeks() {
   return { elapsed: elapsed, total: total };
 }
 
+// ── Effective actual dates for Gantt bar rendering + tooltip ──
+// Encodes the status-driven fallback rules in one place: explicit dates win,
+// then status-transition timestamp (In Progress / Closed) for start, then
+// resolution date (Closed) or today (In Progress) for end. See spec
+// docs/superpowers/specs/2026-05-07-actual-bar-on-gantt-design.md.
+function effectiveActualStart(t) {
+  if (t.actualStart) return t.actualStart;
+  var s = (t.status || '').toLowerCase().trim();
+  var startedOrFinished = s === 'in progress' || /closed|done|complete/.test(s);
+  return startedOrFinished ? (t.statusChangedAt || '') : '';
+}
+
+function effectiveActualEnd(t) {
+  if (t.actualEnd) return t.actualEnd;
+  var s = (t.status || '').toLowerCase().trim();
+  if (/closed|done|complete/.test(s)) return t.resolvedAt || '';
+  if (s === 'in progress') return new Date().toISOString().slice(0, 10);
+  return '';
+}
+
 function getScheduleStatus(t) {
   // Jira / Notion can populate actualStart / actualEnd with target dates
   // even before a task starts (or leave stale data after a status revert).
@@ -1359,12 +1465,14 @@ function getScheduleStatus(t) {
   var isClosed = /closed|done|complete/.test(status);
   var isInProgress = status === 'in progress';
 
-  // Closed: compare actual end (actualEnd) vs planned end (sheet's end).
-  // If either date is missing, we can't compare → return 'Done' so the chip
-  // still reflects "task is closed" without asserting on-time / late.
+  // Closed: compare actual end vs planned end. Prefer explicit actualEnd;
+  // fall back to resolvedAt (Jira resolution timestamp) when actualEnd is empty.
+  // If neither is available (or planned end missing), return 'Done' — task
+  // is closed, but on-time / late can't be judged.
   if (isClosed) {
-    if (!t.end || !t.actualEnd) return 'Done';
-    var projDate = parseDate(t.actualEnd);
+    var endStr = t.actualEnd || t.resolvedAt || '';
+    if (!t.end || !endStr) return 'Done';
+    var projDate = parseDate(endStr);
     var baseDate = parseDate(t.end);
     if (!projDate || !baseDate) return '—';
     var diff = Math.round((projDate - baseDate) / DAY_MS);
@@ -1406,25 +1514,28 @@ function explainSchedule(t, s) {
   var isInProgress = status === 'in progress';
   var statusLabel = t.status || '—';
 
-  // Closed: actual end vs planned end. If a date is missing the chip is the
-  // neutral "Done" pill — task is closed, but on-time / late can't be judged.
+  // Closed: actual end vs planned end. Prefer explicit actualEnd; fall back
+  // to resolvedAt (Jira resolution timestamp). If neither is available the
+  // chip is the neutral "Done" pill.
   if (isClosed) {
-    if (!t.end || !t.actualEnd) {
+    var endStr = t.actualEnd || t.resolvedAt || '';
+    var endLabel = t.actualEnd ? endStr : (endStr ? endStr.slice(0, 10) + ' (resolved)' : '');
+    if (!t.end || !endStr) {
       return 'Closed (status: ' + statusLabel + '). Missing actual or planned end date — cannot compare to plan.';
     }
-    var projDate = parseDate(t.actualEnd);
+    var projDate = parseDate(endStr);
     var baseDate = parseDate(t.end);
     if (!projDate || !baseDate) return 'Closed (status: ' + statusLabel + ').';
     var diff = Math.round((projDate - baseDate) / DAY_MS);
     var absDiff = Math.abs(diff);
     var dayWord = absDiff === 1 ? 'day' : 'days';
     if (s === 'Behind') {
-      return 'Closed ' + t.actualEnd + ', ' + absDiff + ' ' + dayWord + ' after the planned end ' + t.end + ' (>3-day tolerance).';
+      return 'Closed ' + endLabel + ', ' + absDiff + ' ' + dayWord + ' after the planned end ' + t.end + ' (>3-day tolerance).';
     }
     if (s === 'Ahead') {
-      return 'Closed ' + t.actualEnd + ', ' + absDiff + ' ' + dayWord + ' before the planned end ' + t.end + ' (>3-day tolerance).';
+      return 'Closed ' + endLabel + ', ' + absDiff + ' ' + dayWord + ' before the planned end ' + t.end + ' (>3-day tolerance).';
     }
-    return 'Closed ' + t.actualEnd + ' vs planned end ' + t.end + ' = within ±3 days.';
+    return 'Closed ' + endLabel + ' vs planned end ' + t.end + ' = within ±3 days.';
   }
 
   // In Progress: surface late / early start vs planned (the chip itself is

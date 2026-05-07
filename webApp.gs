@@ -132,8 +132,10 @@ function buildTimelineData() {
       pmSize:       n.pmSize       || '',
       comment:      n.comment      || '',
       prelimDate:   n.prelimDate   || '',
-      actualStart:  n.actualStart  || '',
-      actualEnd:    n.actualEnd    || '',
+      actualStart:     n.actualStart  || '',
+      actualEnd:       n.actualEnd    || '',
+      statusChangedAt: '',  // populated by fetchJiraLive override below
+      resolvedAt:      '',
       kickoffLink:  n.kickoffLink  || '',
       kickoffNotes: n.kickoffNotes || '',
       blockedBy:    n.blockedBy    || [],
@@ -141,10 +143,13 @@ function buildTimelineData() {
     });
   });
 
-  // ── Override status / actualStart / actualEnd with live Jira data ──
+  // ── Override status / actualStart / actualEnd + status-fallback timestamps with live Jira data ──
   // The Notion → Sheets daily sync can be up to ~24h stale. Hit Jira directly
-  // (5-min cache) for the three fields that drive the Schedule chip. Any
-  // failure path falls through to the Notion-synced values already set above.
+  // (5-min cache) for the fields that drive the Schedule chip + the dual-bar
+  // Gantt rendering. statusChangedAt / resolvedAt are status-derived fallbacks
+  // for when actualStart / actualEnd are missing. Any failure path falls
+  // through to the Notion-synced values already set above (statusChangedAt /
+  // resolvedAt simply stay empty in that case — the bar logic handles that).
   const jiraKeys = tasks
     .map(function(t) { return extractJiraKey(t.epicUrl); })
     .filter(function(k) { return k; });
@@ -156,8 +161,10 @@ function buildTimelineData() {
     const liveEntry = live[key];
     if (!liveEntry) return;              // Jira didn't return this key — keep Notion data
     if (liveEntry.status) t.status = liveEntry.status;
-    t.actualStart = liveEntry.start || '';
-    t.actualEnd   = liveEntry.end   || '';
+    t.actualStart     = liveEntry.start || '';
+    t.actualEnd       = liveEntry.end   || '';
+    t.statusChangedAt = liveEntry.statusChangedAt || '';
+    t.resolvedAt      = liveEntry.resolvedAt      || '';
   });
 
   return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length };
@@ -200,6 +207,7 @@ function fetchJiraLive(jiraKeys) {
   var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search'
           + '?jql=' + encodeURIComponent(jql)
           + '&fields=status,' + JIRA_FIELD_START + ',' + JIRA_FIELD_END
+          + ',statuscategorychangedate,resolutiondate'
           + '&maxResults=200';
   var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
 
@@ -218,9 +226,11 @@ function fetchJiraLive(jiraKeys) {
     (json.issues || []).forEach(function(i) {
       var f = i.fields || {};
       byKey[i.key] = {
-        status: (f.status && f.status.name) || '',
-        start:  f[JIRA_FIELD_START] || '',
-        end:    f[JIRA_FIELD_END]   || '',
+        status:          (f.status && f.status.name) || '',
+        start:           f[JIRA_FIELD_START] || '',
+        end:             f[JIRA_FIELD_END]   || '',
+        statusChangedAt: f.statuscategorychangedate || '',
+        resolvedAt:      f.resolutiondate           || '',
       };
     });
   } catch (e) {

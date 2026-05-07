@@ -234,7 +234,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Schedule (2026-04-27)**: `activeSchedule` variable — set by clicking Schedule strip pills
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
-- **Show Actual (2026-04-28)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.actualStart` / `t.actualEnd` (Jira REST direct, Notion-synced fallback).
+- **Show Actual (2026-04-28; scope narrowed 2026-05-07)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.actualStart` / `t.actualEnd` (Jira REST direct, Notion-synced fallback). **Toggle controls the columns only — the Gantt bar's dual-bar treatment now renders independently whenever effective actual data exists** (see Gantt section below).
 
 ### What's-new tour overlay (2026-04-28)
 - `?` button in top-right (next to theme toggle) opens a sequential walkthrough with 6 callouts pointing at recent features: Progress widgets, Schedule filter strip, PRD by PM cards, Risk chips, Show Actual toggle, Plan vs Actual columns.
@@ -297,6 +297,12 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **At-risk rows**: highlighted red when end > ideal date
 - **Today line**: red vertical line
 - **Grid lines (2026-04-29 polish pass, second iteration)**: body Gantt cells have **no vertical lines at all** — neither weekly nor month-boundary. Time anchoring is carried by the header dividers (`.gantt-week-label` / `.gantt-month-label` `border-right`) and the per-task date columns; the Today line still draws in red. The grid-line `forEach` loop in `buildTaskRow` is gone. `.grid-line-minor` and `.grid-line-major` CSS rules remain (dead code) for easy revert if a body line is ever wanted again.
+- **Dual-bar (2026-05-07 spec)**: bar branches on whether *effective* actual data exists.
+  - **Case 1 — plan only** (To Do / no fallback): single full-height `.gantt-bar` in team color, identical to legacy behaviour.
+  - **Case 2/3 — half-split** (effective actual present): top half `.gantt-plan` (muted grey, team-agnostic), bottom half `.gantt-actual` (team color). When actual end > plan end, append `.gantt-overrun` continuing past plan-end with a soft red hatch (`var(--red)` palette, low contrast, no border).
+  - **In Progress + no explicit `actualEnd`**: `.gantt-actual` adds class `in-progress-ongoing` — CSS `mask-image` fades the right edge so the endpoint reads as "ongoing, today as soft endpoint."
+  - **Effective dates** via `effectiveActualStart(t)` / `effectiveActualEnd(t)`: explicit `t.actualStart` / `t.actualEnd` win first, then `t.statusChangedAt` (Jira `statuscategorychangedate`) for start when status is In Progress / Closed, then `t.resolvedAt` (Jira `resolutiondate`) for end when Closed, then today for end when In Progress.
+  - All segments carry the same `onclick` → opens Jira. Row-level tooltip annotates fallback sources (e.g. `~5/15 (resolved)` when end came from `resolvedAt` rather than explicit `actualEnd`).
 - **Bar click**: if `epicUrl` exists, `window.open(epicUrl, '_blank')` — cursor:pointer, title "Open in Jira"
 - **Status dot**: in gantt-col, position:absolute left:6px, shows status name on hover
 - **TIMELINE_END**: `new Date('2026-10-31')`
