@@ -63,7 +63,7 @@ Jira REST (status / customfield_11014 / duedate) ──→ webApp.gs override (5
 
 All joins are by `jira_url`. Row order in any tab is irrelevant — manual data is anchored by PK.
 
-**Live Jira override (2026-05-06)**: `webApp.gs` calls Jira REST at render time (cached 5 min via `CacheService`) to refresh **only** `t.status`, `t.actualStart`, `t.actualEnd` — every other field still flows through the Notion → Sheets daily path. Failure of the Jira fetch (no token, non-200, throw) returns an empty map; tasks fall back to their Notion-synced values without an exception. Token lives in Apps Script Script Properties under key `jiraToken`. Spec: `docs/superpowers/specs/2026-05-06-jira-live-sync-design.md`.
+**Live Jira override (2026-05-06; expanded 2026-05-07)**: `webApp.gs` calls Jira REST at render time (cached 5 min via `CacheService`) to refresh `t.status`, `t.actualStart`, `t.actualEnd`, plus `t.statusChangedAt` / `t.resolvedAt` (status-fallback timestamps for the Gantt bar) and `t.blocking` / `t.blockedBy` / `t.relates` (parsed from `issuelinks` for the dependency arrows). Every other field still flows through the Notion → Sheets daily path. Failure of the Jira fetch (no token, non-200, throw) returns an empty map; tasks fall back to their Notion-synced values without an exception (Relates simply stays empty since Notion has no equivalent). Token lives in Apps Script Script Properties under key `jiraToken`. Specs: `docs/superpowers/specs/2026-05-06-jira-live-sync-design.md`, `2026-05-07-jira-issuelinks-dependencies-design.md`.
 
 ---
 
@@ -285,13 +285,17 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
   - Priority: P0/P1/P2 only (Low removed)
   - Task: "Task name from Jira → Notion — synced via Realistic Scenario sheet"
 
-### Dependency Arrows (drawDependencies)
-- Uses Notion blocking/blockedBy fields
-- Amber dashed bezier curves + arrow markers
-- **Bidirectional**: iterates both `t.blocking` (this blocks others) AND `t.blockedBy` (others block this)
-- `arrowSet` object deduplicates — same arrow not drawn twice even if both directions are populated
-- `drawArrow(fromKey, fromTask, toKey, toTask, arrowSet)` helper function
-- Arrow only draws if both tasks have start/end dates (no dates = no Gantt bar = no position to draw from)
+### Dependency Arrows (drawDependencies) — two link types (2026-05-07)
+- **Source**: Jira `issuelinks` via `fetchJiraLive` (5-min cache). Notion-synced `t.blocking` / `t.blockedBy` remain as the graceful fallback if Jira fetch fails. `t.relates` is Jira-only — Notion has no Relates relation.
+- **Two link types rendered**:
+  - **Blocks** (directional, `t.blocking[]` / `t.blockedBy[]`) — amber dashed bezier `#e5a44b`, dasharray `5 3`, width 1.5, arrowhead via `marker-end`. Goes from source-task bar end → target-task bar start.
+  - **Relates** (bidirectional, `t.relates[]`) — blue dotted bezier `#5b8af5`, dasharray `1 3`, width 1.2, opacity 0.7, **no arrowhead**. Anchored at each task's plan start (left edge of the bar).
+- Other Jira link types (Cloners, Duplicate, Causes, etc.) are parsed and ignored — only Blocks and Relates render.
+- **Dedup**: `arrowSet` for Blocks (`'A->B'` key, both halves of a Blocks pair populate independently in Jira); `relatesSet` for Relates (canonical sorted-pair key `'min<->max'`, since Relates is bidirectional and both ends record the link). Pairs already drawn as Blocks skip the Relates draw — Blocks is the more specific signal.
+- **Self-link guard**: `t.relates` entries equal to `t.epic` are skipped.
+- **Hover tooltip**: each `<path>` has an SVG `<title>` child rendering the link type and the two Jira keys (`Blocks: A → B` / `Relates: A ↔ B`). Each path also gets `pointer-events: stroke` so the line itself is hit-testable; SVG container stays `pointer-events: none` so empty bezier areas pass clicks through to the table beneath.
+- **Toggle**: `Show Dependencies` button covers both types together. Default OFF.
+- **Helper**: `drawArrow(fromKey, fromTask, toKey, toTask, arrowSet)` (Blocks); `drawRelatesLink(taskA, taskB)` (Relates). Both bail out if either task is filtered out of view (rowMap miss) or missing the required date (Blocks: `fromTask.end` + `toTask.start`; Relates: both `start`s).
 
 ### Gantt
 - **At-risk rows**: highlighted red when end > ideal date

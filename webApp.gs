@@ -140,6 +140,7 @@ function buildTimelineData() {
       kickoffNotes: n.kickoffNotes || '',
       blockedBy:    n.blockedBy    || [],
       blocking:     n.blocking     || [],
+      relates:      [],   // Jira-only (Notion has no Relates relation); populated by fetchJiraLive
     });
   });
 
@@ -165,6 +166,11 @@ function buildTimelineData() {
     t.actualEnd       = liveEntry.end   || '';
     t.statusChangedAt = liveEntry.statusChangedAt || '';
     t.resolvedAt      = liveEntry.resolvedAt      || '';
+    // Override Notion-synced blocking / blockedBy with Jira-derived. Relates is
+    // Jira-only (Notion has no equivalent), so it just copies the parsed list.
+    if (liveEntry.blocking)  t.blocking  = liveEntry.blocking;
+    if (liveEntry.blockedBy) t.blockedBy = liveEntry.blockedBy;
+    t.relates = liveEntry.relates || [];
   });
 
   return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length };
@@ -207,7 +213,7 @@ function fetchJiraLive(jiraKeys) {
   var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search'
           + '?jql=' + encodeURIComponent(jql)
           + '&fields=status,' + JIRA_FIELD_START + ',' + JIRA_FIELD_END
-          + ',statuscategorychangedate,resolutiondate'
+          + ',statuscategorychangedate,resolutiondate,issuelinks'
           + '&maxResults=200';
   var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
 
@@ -225,13 +231,28 @@ function fetchJiraLive(jiraKeys) {
     var json = JSON.parse(resp.getContentText());
     (json.issues || []).forEach(function(i) {
       var f = i.fields || {};
-      byKey[i.key] = {
+      var entry = {
         status:          (f.status && f.status.name) || '',
         start:           f[JIRA_FIELD_START] || '',
         end:             f[JIRA_FIELD_END]   || '',
         statusChangedAt: f.statuscategorychangedate || '',
         resolvedAt:      f.resolutiondate           || '',
+        blocking:  [],   // Jira keys this task blocks (Blocks type, outward)
+        blockedBy: [],   // Jira keys that block this task (Blocks type, inward)
+        relates:   [],   // Jira keys with Relates link (bidirectional)
       };
+      // Parse issuelinks. Other types (Cloners / Duplicate / Causes / etc.) are ignored.
+      (f.issuelinks || []).forEach(function(link) {
+        var typeName = (link.type && link.type.name) || '';
+        if (typeName === 'Blocks') {
+          if (link.outwardIssue && link.outwardIssue.key) entry.blocking.push(link.outwardIssue.key);
+          if (link.inwardIssue  && link.inwardIssue.key)  entry.blockedBy.push(link.inwardIssue.key);
+        } else if (typeName === 'Relates') {
+          var other = (link.outwardIssue || link.inwardIssue || {}).key;
+          if (other) entry.relates.push(other);
+        }
+      });
+      byKey[i.key] = entry;
     });
   } catch (e) {
     Logger.log('[jira-live] fetch threw: ' + e.message + ' — falling back to Notion data');

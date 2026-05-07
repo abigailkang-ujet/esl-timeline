@@ -1901,6 +1901,10 @@ function drawDependencies() {
   defs.appendChild(marker);
   svg.appendChild(defs);
 
+  function rowYCenter(row) {
+    return (row.getBoundingClientRect().top + window.pageYOffset) - containerPageTop + row.offsetHeight / 2;
+  }
+
   function drawArrow(fromKey, fromTask, toKey, toTask, arrowSet) {
     var arrowKey = (fromKey||fromTask.task) + '->' + (toKey||toTask.task);
     if (arrowSet[arrowKey]) return false;
@@ -1916,8 +1920,8 @@ function drawDependencies() {
 
     var x1 = ganttLeft + dayToPx(dayOffset(endDate));
     var x2 = ganttLeft + dayToPx(dayOffset(startDate));
-    var y1 = (fromRow.getBoundingClientRect().top + window.pageYOffset) - containerPageTop + fromRow.offsetHeight / 2;
-    var y2 = (toRow.getBoundingClientRect().top   + window.pageYOffset) - containerPageTop + toRow.offsetHeight  / 2;
+    var y1 = rowYCenter(fromRow);
+    var y2 = rowYCenter(toRow);
 
     var dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
     var path = document.createElementNS(NS, 'path');
@@ -1931,11 +1935,50 @@ function drawDependencies() {
     path.setAttribute('stroke-dasharray', '5 3');
     path.setAttribute('marker-end', 'url(#dep-arrow)');
     path.setAttribute('opacity', '0.75');
+    path.setAttribute('pointer-events', 'stroke');
+    var blocksTitle = document.createElementNS(NS, 'title');
+    blocksTitle.textContent = 'Blocks: ' + (fromKey || fromTask.task) + ' → ' + (toKey || toTask.task);
+    path.appendChild(blocksTitle);
     svg.appendChild(path);
     return true;
   }
 
-  var arrowSet = {};
+  // Relates link — bidirectional, no arrowhead, blue dotted, anchored at each task's plan start.
+  // Returns true if drawn, false otherwise.
+  function drawRelatesLink(taskA, taskB) {
+    var rowA = rowMap[taskA.epic || ''] || rowNameMap[taskA.task || ''];
+    var rowB = rowMap[taskB.epic || ''] || rowNameMap[taskB.task || ''];
+    if (!rowA || !rowB) return false;
+    var aStart = parseDate(taskA.start);
+    var bStart = parseDate(taskB.start);
+    if (!aStart || !bStart) return false;
+
+    var x1 = ganttLeft + dayToPx(dayOffset(aStart));
+    var x2 = ganttLeft + dayToPx(dayOffset(bStart));
+    var y1 = rowYCenter(rowA);
+    var y2 = rowYCenter(rowB);
+
+    var dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d',
+      'M' + x1 + ',' + y1 +
+      ' C' + (x1+dx) + ',' + y1 + ' ' + (x2-dx) + ',' + y2 + ' ' + x2 + ',' + y2
+    );
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#5b8af5');
+    path.setAttribute('stroke-width', '1.2');
+    path.setAttribute('stroke-dasharray', '1 3');
+    path.setAttribute('opacity', '0.7');
+    path.setAttribute('pointer-events', 'stroke');
+    var relatesTitle = document.createElementNS(NS, 'title');
+    relatesTitle.textContent = 'Relates: ' + (taskA.epic || taskA.task) + ' ↔ ' + (taskB.epic || taskB.task);
+    path.appendChild(relatesTitle);
+    svg.appendChild(path);
+    return true;
+  }
+
+  var arrowSet = {};   // 'A->B' Blocks dedup
+  var relatesSet = {}; // 'min<->max' canonical Relates dedup
   var drawn = 0;
 
   // Direction 1: t.blocking — this task blocks others (FROM t.end TO target.start)
@@ -1955,6 +1998,23 @@ function drawDependencies() {
       var fromTask = taskMap[blocker] || taskNameMap[blocker];
       if (!fromTask) return;
       if (drawArrow(blocker, fromTask, t.epic, t, arrowSet)) drawn++;
+    });
+  });
+
+  // Direction 3: t.relates — bidirectional, dedupe pairs, defer to Blocks if same pair already drew
+  ALL_TASKS.forEach(function(t) {
+    if (!t.epic || !t.relates || !t.relates.length) return;
+    t.relates.forEach(function(otherKey) {
+      if (otherKey === t.epic) return;                // self-link guard
+      var other = taskMap[otherKey];
+      if (!other) return;
+      // Skip if this pair already drew as Blocks (in either direction)
+      if (arrowSet[t.epic + '->' + otherKey]) return;
+      if (arrowSet[otherKey + '->' + t.epic]) return;
+      var pair = [t.epic, otherKey].sort().join('<->');
+      if (relatesSet[pair]) return;
+      relatesSet[pair] = true;
+      if (drawRelatesLink(t, other)) drawn++;
     });
   });
 
