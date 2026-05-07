@@ -132,8 +132,8 @@ function buildTimelineData() {
       pmSize:       n.pmSize       || '',
       comment:      n.comment      || '',
       prelimDate:   n.prelimDate   || '',
-      notionStart:  n.notionStart  || '',
-      notionEnd:    n.notionEnd    || '',
+      actualStart:  n.actualStart  || '',
+      actualEnd:    n.actualEnd    || '',
       kickoffLink:  n.kickoffLink  || '',
       kickoffNotes: n.kickoffNotes || '',
       blockedBy:    n.blockedBy    || [],
@@ -141,7 +141,7 @@ function buildTimelineData() {
     });
   });
 
-  // ── Override status / notionStart / notionEnd with live Jira data ──
+  // ── Override status / actualStart / actualEnd with live Jira data ──
   // The Notion → Sheets daily sync can be up to ~24h stale. Hit Jira directly
   // (5-min cache) for the three fields that drive the Schedule chip. Any
   // failure path falls through to the Notion-synced values already set above.
@@ -156,8 +156,8 @@ function buildTimelineData() {
     const liveEntry = live[key];
     if (!liveEntry) return;              // Jira didn't return this key — keep Notion data
     if (liveEntry.status) t.status = liveEntry.status;
-    t.notionStart = liveEntry.start || '';
-    t.notionEnd   = liveEntry.end   || '';
+    t.actualStart = liveEntry.start || '';
+    t.actualEnd   = liveEntry.end   || '';
   });
 
   return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length };
@@ -260,8 +260,8 @@ function buildNotionIndex(ss) {
       pm:           str(row['PM Owner']),
       pmo:          str(row['PMO Owner']),
       prelimDate:   str(row['Prelim. Committed Date']),
-      notionStart:  parts[0] ? parts[0].trim() : '',
-      notionEnd:    parts[1] ? parts[1].trim() : '',
+      actualStart:  parts[0] ? parts[0].trim() : '',
+      actualEnd:    parts[1] ? parts[1].trim() : '',
       kickoffLink:  str(row['Kickoff Meeting Link']),
       kickoffNotes: str(row['Kickoff Meeting Notes']),
       prdUrl:       str(row['PRD URL']),

@@ -63,7 +63,7 @@ Jira REST (status / customfield_11014 / duedate) ──→ webApp.gs override (5
 
 All joins are by `jira_url`. Row order in any tab is irrelevant — manual data is anchored by PK.
 
-**Live Jira override (2026-05-06)**: `webApp.gs` calls Jira REST at render time (cached 5 min via `CacheService`) to refresh **only** `t.status`, `t.notionStart`, `t.notionEnd` — every other field still flows through the Notion → Sheets daily path. Failure of the Jira fetch (no token, non-200, throw) returns an empty map; tasks fall back to their Notion-synced values without an exception. Token lives in Apps Script Script Properties under key `jiraToken`. Spec: `docs/superpowers/specs/2026-05-06-jira-live-sync-design.md`.
+**Live Jira override (2026-05-06)**: `webApp.gs` calls Jira REST at render time (cached 5 min via `CacheService`) to refresh **only** `t.status`, `t.actualStart`, `t.actualEnd` — every other field still flows through the Notion → Sheets daily path. Failure of the Jira fetch (no token, non-200, throw) returns an empty map; tasks fall back to their Notion-synced values without an exception. Token lives in Apps Script Script Properties under key `jiraToken`. Spec: `docs/superpowers/specs/2026-05-06-jira-live-sync-design.md`.
 
 ---
 
@@ -234,7 +234,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **Schedule (2026-04-27)**: `activeSchedule` variable — set by clicking Schedule strip pills
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
-- **Show Actual (2026-04-28)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.notionStart` / `t.notionEnd` (Jira via Notion).
+- **Show Actual (2026-04-28)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.actualStart` / `t.actualEnd` (Jira REST direct, Notion-synced fallback).
 
 ### What's-new tour overlay (2026-04-28)
 - `?` button in top-right (next to theme toggle) opens a sequential walkthrough with 6 callouts pointing at recent features: Progress widgets, Schedule filter strip, PRD by PM cards, Risk chips, Show Actual toggle, Plan vs Actual columns.
@@ -255,12 +255,12 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - `td.task-name-cell`: `white-space:normal`, `overflow-wrap:break-word`, `line-height:1.35`
 
 ### Schedule Badge (`buildScheduleBadge`) — status-driven (2026-04-30)
-**Branching is keyed on `t.status`, NOT on the presence of `notionStart` / `notionEnd`.** Earlier logic trusted those fields as "actual" indicators, but Jira/Notion's "Start-End Date" property can carry target dates for not-yet-started tickets and stale dates after a status revert. Reading status first prevents To Do tickets from being misclassified as Ahead/Behind.
+**Branching is keyed on `t.status`, NOT on the presence of `actualStart` / `actualEnd`.** Earlier logic trusted those fields as "actual" indicators, but Jira/Notion's "Start-End Date" property can carry target dates for not-yet-started tickets and stale dates after a status revert. Reading status first prevents To Do tickets from being misclassified as Ahead/Behind.
 
 | `t.status` | Logic |
 |------------|-------|
-| `Closed` / `Done` / `Complete` (case-insensitive) | Compare `notionEnd` vs `t.end` (±3 day tolerance): Behind / On Track / Ahead. If either date is missing → `Done` (neutral grey pill — task is closed, on-time/late can't be judged). |
-| `In Progress` (exact, lowercase compare) | `On Track` always (we can't compare ends yet). Per-task hover surfaces start-vs-plan delta when `notionStart` differs from `t.start` (any non-zero day count, not the ±3 tolerance). |
+| `Closed` / `Done` / `Complete` (case-insensitive) | Compare `actualEnd` vs `t.end` (±3 day tolerance): Behind / On Track / Ahead. If either date is missing → `Done` (neutral grey pill — task is closed, on-time/late can't be judged). |
+| `In Progress` (exact, lowercase compare) | `On Track` always (we can't compare ends yet). Per-task hover surfaces start-vs-plan delta when `actualStart` differs from `t.start` (any non-zero day count, not the ±3 tolerance). |
 | Anything else (To Do, Untriaged, Blocked, blank) | `Behind` when `t.start` < today, otherwise `—`. Notion dates are deliberately ignored in this branch. |
 
 - Per-task hover (`title` on the chip) explains the specific reason in concrete dates and day counts. Generic rule recap lives on the column header `tip()`.
@@ -268,7 +268,7 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 
 ### Tooltip
 - Fields: lead, allocation, headcount, **Plan Start / Plan End** (always), **Actual Start / Actual End** (only when present), Ideal, effort, risk, PM, PMO, PRD, status, blocking, blockedBy, note
-- Plan Start/End rows always render (`-` when missing). Actual Start/End rows are conditional on `d.notionStart` / `d.notionEnd` being non-empty — keeps tooltip compact for not-yet-started tasks. Tooltip shows actuals regardless of `Show Actual` toggle state (safety net).
+- Plan Start/End rows always render (`-` when missing). Actual Start/End rows are conditional on `d.actualStart` / `d.actualEnd` being non-empty — keeps tooltip compact for not-yet-started tasks. Tooltip shows actuals regardless of `Show Actual` toggle state (safety net).
 - **Size**: max-width 300px, padding 10px 12px, font-size 12px
 - **Smart positioning**: flips up/left automatically when near viewport edges
   ```javascript
@@ -349,8 +349,8 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 | Sheet not reflecting Notion changes | Checked sheet before running sync after Notion edit | Always run sync after making Notion changes |
 | compareNotionVsSheets hangs/slow | Per-row `setBackground()` calls (1 Sheets API call per row) | Batch: `getRange(...).setBackgrounds(bgColors)` single call |
 | Status pill highlight not updating on click | `buildSummary()` returns new DOM node, doesn't replace existing | Call `renderAll(null)` instead — full re-render clears+rebuilds root |
-| Task started but shows Behind | `buildScheduleBadge` only checked `start < today` without checking `notionStart` | Added `if (t.notionStart) return On Track` before Behind check |
-| To Do task showing Ahead/Behind via end-date comparison | `getScheduleStatus` trusted `notionEnd` presence as "task finished" indicator, but Notion's Start-End Date can carry Jira target dates or stale post-revert data | Rewrote logic to branch on `t.status` first — only the Closed branch consults `notionEnd`; To Do/Untriaged/Blocked ignore notion dates entirely (2026-04-30) |
+| Task started but shows Behind | `buildScheduleBadge` only checked `start < today` without checking `actualStart` | Added `if (t.actualStart) return On Track` before Behind check |
+| To Do task showing Ahead/Behind via end-date comparison | `getScheduleStatus` trusted `actualEnd` presence as "task finished" indicator, but Notion's Start-End Date can carry Jira target dates or stale post-revert data | Rewrote logic to branch on `t.status` first — only the Closed branch consults `actualEnd`; To Do/Untriaged/Blocked ignore notion dates entirely (2026-04-30) |
 | Task name not wrapping to 2 lines | `max-width` on `<td>` ignored in table auto-layout — cell expands horizontally | Use inner `<span class="task-name-wrap">` with `max-width` + `-webkit-line-clamp:2` |
 | Dependency arrows not drawing | Task has `blockedBy` but blocker's `blocking` field empty (one-directional Notion relation) | `drawDependencies` now iterates both `t.blocking` and `t.blockedBy`; `arrowSet` prevents double-draw |
 | Team header / task row look same | Both using `--bg-card` | Task rows → `--bg-elevated`; team header → `--bg-card` (light mode: reversed) |

@@ -1091,7 +1091,7 @@ function buildTimeline(tasks, teamFilter) {
       task:t.task, epic:t.epic, lead:t.lead, allocation:t.allocation,
       headcount:t.headcount, pm:pmFull, pmo:t.pmo, prd:t.prd, prdUrl:t.prdUrl,
       start:t.start, end:t.end, ideal:id?fmtFull(id):'', effort:t.effort,
-      notionStart:t.notionStart||'', notionEnd:t.notionEnd||'',
+      actualStart:t.actualStart||'', actualEnd:t.actualEnd||'',
       risk:t.risk, note:t.note, status:t.status,
       blocking:t.blocking||[], blockedBy:t.blockedBy||[],
     };
@@ -1124,7 +1124,7 @@ function buildTimeline(tasks, teamFilter) {
       '<td class="info-col" data-col="risk">' + buildRiskBadge(t.risk) + '</td>' +
       '<td class="info-col date-cell" data-col="start">' + fmtShort(sd) + '</td>' +
       '<td class="info-col date-cell" data-col="end">' + fmtShort(ed) + '</td>' +
-      (showActual ? '<td class="info-col date-cell" data-col="actStart">' + fmtShort(parseDate(t.notionStart)) + '</td><td class="info-col date-cell" data-col="actEnd">' + fmtShort(parseDate(t.notionEnd)) + '</td>' : '') +
+      (showActual ? '<td class="info-col date-cell" data-col="actStart">' + fmtShort(parseDate(t.actualStart)) + '</td><td class="info-col date-cell" data-col="actEnd">' + fmtShort(parseDate(t.actualEnd)) + '</td>' : '') +
       '<td class="info-col date-cell" data-col="ideal"' + (isAtRisk?' style="color:#fca5a5;font-weight:600"':'') + '>' + fmtShort(id) + '</td>' +
       '<td class="info-col" data-col="schedule">' + buildScheduleBadge(t) + '</td>' +
       (showExtra ? '<td class="info-col date-cell" data-col="alloc">' + (t.allocation||'-') + '</td><td class="info-col date-cell" data-col="status">' + (t.status||'-') + '</td>' : '') +
@@ -1190,8 +1190,8 @@ function buildTimeline(tasks, teamFilter) {
       if (d.headcount) html += '<div class="tt-row"><span class="tt-label">Headcount</span><span class="tt-value">' + d.headcount + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Plan Start</span><span class="tt-value">' + (d.start||'-') + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Plan End</span><span class="tt-value">' + (d.end||'-') + '</span></div>';
-      if (d.notionStart) html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.notionStart + '</span></div>';
-      if (d.notionEnd)   html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.notionEnd + '</span></div>';
+      if (d.actualStart) html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.actualStart + '</span></div>';
+      if (d.actualEnd)   html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.actualEnd + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Ideal</span><span class="tt-value">' + (d.ideal||'-') + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Effort</span><span class="tt-value">' + d.effort + ' weeks</span></div>';
       if (d.risk) html += '<div class="tt-row"><span class="tt-label">Risk</span><span class="tt-value">' + d.risk + '</span></div>';
@@ -1351,7 +1351,7 @@ function programSpanWeeks() {
 }
 
 function getScheduleStatus(t) {
-  // Jira / Notion can populate notionStart / notionEnd with target dates
+  // Jira / Notion can populate actualStart / actualEnd with target dates
   // even before a task starts (or leave stale data after a status revert).
   // Use the task's STATUS as the source of truth for what stage it's in;
   // only consult the actual dates within the matching branch.
@@ -1359,12 +1359,12 @@ function getScheduleStatus(t) {
   var isClosed = /closed|done|complete/.test(status);
   var isInProgress = status === 'in progress';
 
-  // Closed: compare actual end (notionEnd) vs planned end (sheet's end).
+  // Closed: compare actual end (actualEnd) vs planned end (sheet's end).
   // If either date is missing, we can't compare → return 'Done' so the chip
   // still reflects "task is closed" without asserting on-time / late.
   if (isClosed) {
-    if (!t.end || !t.notionEnd) return 'Done';
-    var projDate = parseDate(t.notionEnd);
+    if (!t.end || !t.actualEnd) return 'Done';
+    var projDate = parseDate(t.actualEnd);
     var baseDate = parseDate(t.end);
     if (!projDate || !baseDate) return '—';
     var diff = Math.round((projDate - baseDate) / DAY_MS);
@@ -1409,28 +1409,28 @@ function explainSchedule(t, s) {
   // Closed: actual end vs planned end. If a date is missing the chip is the
   // neutral "Done" pill — task is closed, but on-time / late can't be judged.
   if (isClosed) {
-    if (!t.end || !t.notionEnd) {
+    if (!t.end || !t.actualEnd) {
       return 'Closed (status: ' + statusLabel + '). Missing actual or planned end date — cannot compare to plan.';
     }
-    var projDate = parseDate(t.notionEnd);
+    var projDate = parseDate(t.actualEnd);
     var baseDate = parseDate(t.end);
     if (!projDate || !baseDate) return 'Closed (status: ' + statusLabel + ').';
     var diff = Math.round((projDate - baseDate) / DAY_MS);
     var absDiff = Math.abs(diff);
     var dayWord = absDiff === 1 ? 'day' : 'days';
     if (s === 'Behind') {
-      return 'Closed ' + t.notionEnd + ', ' + absDiff + ' ' + dayWord + ' after the planned end ' + t.end + ' (>3-day tolerance).';
+      return 'Closed ' + t.actualEnd + ', ' + absDiff + ' ' + dayWord + ' after the planned end ' + t.end + ' (>3-day tolerance).';
     }
     if (s === 'Ahead') {
-      return 'Closed ' + t.notionEnd + ', ' + absDiff + ' ' + dayWord + ' before the planned end ' + t.end + ' (>3-day tolerance).';
+      return 'Closed ' + t.actualEnd + ', ' + absDiff + ' ' + dayWord + ' before the planned end ' + t.end + ' (>3-day tolerance).';
     }
-    return 'Closed ' + t.notionEnd + ' vs planned end ' + t.end + ' = within ±3 days.';
+    return 'Closed ' + t.actualEnd + ' vs planned end ' + t.end + ' = within ±3 days.';
   }
 
   // In Progress: surface late / early start vs planned (the chip itself is
   // On Track until planned end is reached).
   if (isInProgress) {
-    var actualStart = parseDate(t.notionStart);
+    var actualStart = parseDate(t.actualStart);
     var plannedStart = parseDate(t.start);
     var lateNote = '';
     if (actualStart && plannedStart) {
@@ -1442,7 +1442,7 @@ function explainSchedule(t, s) {
         lateNote = ' Started ' + ed + ' day' + (ed === 1 ? '' : 's') + ' early (planned ' + t.start + ').';
       }
     }
-    var startedStr = t.notionStart ? 'Started ' + t.notionStart + ' in Jira.' : 'Status: In Progress.';
+    var startedStr = t.actualStart ? 'Started ' + t.actualStart + ' in Jira.' : 'Status: In Progress.';
     return startedStr + lateNote + ' On Track until planned end ' + (t.end || '—') + ' is reached.';
   }
 
