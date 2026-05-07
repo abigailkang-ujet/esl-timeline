@@ -21,7 +21,7 @@ const JIRA_DOMAIN      = 'ujetcs.atlassian.net';
 const JIRA_EMAIL       = 'abigail.kang@ujet.cx';
 const JIRA_FIELD_START = 'customfield_11014';   // Jira Start Date custom field
 const JIRA_FIELD_END   = 'duedate';
-const JIRA_CACHE_KEY   = 'esl-jira-live-v1';
+const JIRA_CACHE_KEY   = 'esl-jira-live-v2';   // bump on parser/shape change
 const JIRA_CACHE_TTL   = 300;                    // 5 minutes
 
 // Jira 프로젝트 키 prefix → 정규화된 팀명 매핑
@@ -255,12 +255,13 @@ function fetchJiraLive(jiraKeys) {
         if (isBlocks) {
           if (link.outwardIssue && link.outwardIssue.key) entry.blocking.push(link.outwardIssue.key);
           if (link.inwardIssue  && link.inwardIssue.key)  entry.blockedBy.push(link.inwardIssue.key);
+          Logger.log('[jira-live] ' + i.key + ' Blocks link → name="' + t.name + '" inward="' + t.inward + '" outward="' + t.outward + '"');
         } else if (isRelates) {
           var other = (link.outwardIssue || link.inwardIssue || {}).key;
           if (other) entry.relates.push(other);
+          Logger.log('[jira-live] ' + i.key + ' Relates → ' + other + ' (name="' + t.name + '")');
         } else if (t.name) {
-          // Log once-per-call so we can see custom link types in production
-          Logger.log('[jira-live] ignored issuelink type: ' + t.name + ' (inward="' + t.inward + '", outward="' + t.outward + '")');
+          Logger.log('[jira-live] ' + i.key + ' ignored issuelink type: ' + t.name + ' (inward="' + t.inward + '", outward="' + t.outward + '")');
         }
       });
       byKey[i.key] = entry;
