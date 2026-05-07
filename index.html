@@ -270,6 +270,33 @@
     transition: padding 0.12s ease;
     cursor: default;
   }
+
+  /* Status dot — small colored circle that expands to a pill on hover. */
+  .status-dot {
+    position: absolute;
+    left: 6px; top: 50%;
+    transform: translateY(-50%);
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    z-index: 2;
+    cursor: default;
+    display: inline-flex; align-items: center;
+    overflow: hidden; white-space: nowrap;
+    transition: width 0.12s ease, height 0.12s ease, border-radius 0.12s ease;
+  }
+  .status-dot .status-text {
+    font-size: 10px; font-weight: 600; color: #fff;
+    padding: 0 8px;
+    opacity: 0;
+    transition: opacity 0.1s ease 0.04s;
+  }
+  .status-dot:hover {
+    width: auto; height: 16px;
+    border-radius: 8px;
+    z-index: 10;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  }
+  .status-dot:hover .status-text { opacity: 1; }
   .risk-badge .risk-word { display: none; }
   .risk-badge:hover .risk-letter { display: none; }
   .risk-badge:hover .risk-word { display: inline; }
@@ -1205,7 +1232,7 @@ function buildTimeline(tasks, teamFilter) {
       '<td class="info-col" data-col="schedule">' + buildScheduleBadge(t) + '</td>' +
       (showExtra ? '<td class="info-col date-cell" data-col="alloc">' + (t.allocation||'-') + '</td><td class="info-col date-cell" data-col="status">' + (t.status||'-') + '</td>' : '') +
       '<td class="gantt-col">' +
-        (t.status ? '<span class="status-dot" data-status="' + t.status + '" style="position:absolute;left:6px;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:50%;background:' + statusColor(t.status) + ';z-index:2;cursor:default"></span>' : '') +
+        (t.status ? '<span class="status-dot" data-status="' + t.status + '" style="background:' + statusColor(t.status) + '"><span class="status-text">' + t.status + '</span></span>' : '') +
         ganttInner +
       '</td>' +
       '</tr>';
@@ -1386,23 +1413,7 @@ function buildTimeline(tasks, teamFilter) {
     });
   });
 
-  // ── Status dot tooltips (instant) ──
-  table.querySelectorAll('.status-dot').forEach(function(dot) {
-    dot.addEventListener('mouseenter', function(e) {
-      var s = dot.getAttribute('data-status');
-      tooltip.innerHTML = '<div style="font-size:12px;font-weight:600;color:' + statusColor(s) + '">' + s + '</div>';
-      tooltip.classList.add('show');
-      var ttW = tooltip.offsetWidth, ttH = tooltip.offsetHeight;
-      var left = e.clientX + 16, top = e.clientY + 10;
-      if (left + ttW > window.innerWidth  - 8) left = e.clientX - ttW - 16;
-      if (top  + ttH > window.innerHeight - 8) top  = e.clientY - ttH - 10;
-      tooltip.style.left = left + 'px';
-      tooltip.style.top  = top  + 'px';
-    });
-    dot.addEventListener('mouseleave', function() {
-      tooltip.classList.remove('show');
-    });
-  });
+  // Status dot expands inline on hover via CSS — no JS tooltip needed.
 
   return container;
 }
