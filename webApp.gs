@@ -210,16 +210,25 @@ function fetchJiraLive(jiraKeys) {
   }
 
   var jql = 'key in (' + jiraKeys.join(',') + ')';
-  var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search'
-          + '?jql=' + encodeURIComponent(jql)
-          + '&fields=status,' + JIRA_FIELD_START + ',' + JIRA_FIELD_END
-          + ',statuscategorychangedate,resolutiondate,issuelinks'
-          + '&maxResults=200';
+  // Atlassian sunset GET /rest/api/3/search on 2025-05-01. Use the new
+  // POST /rest/api/3/search/jql with a JSON body. fields is now an array.
+  // For ≤200 tasks this fits in a single page; pagination via nextPageToken
+  // is unused for now (we'd need it past ~5000 issues).
+  var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search/jql';
+  var bodyJson = JSON.stringify({
+    jql: jql,
+    fields: ['status', JIRA_FIELD_START, JIRA_FIELD_END,
+             'statuscategorychangedate', 'resolutiondate', 'issuelinks'],
+    maxResults: 200
+  });
   var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
 
   var byKey = {};
   try {
     var resp = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: bodyJson,
       headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
       muteHttpExceptions: true,
     });
