@@ -373,19 +373,22 @@
 
   /* Bar hover — segment grows in height and reveals date label inside.
      Mirrors the status-dot expand pattern: same colour, just thicker, with
-     text fading in inside the bar. */
+     text fading in inside the bar. Label is allowed to overflow the bar
+     width so narrow bars still show the full date string; strong text
+     shadow keeps it legible against the row background. */
   .gantt-bar, .gantt-plan, .gantt-actual, .gantt-overrun {
     display: flex; align-items: center; justify-content: center;
-    overflow: hidden; white-space: nowrap;
+    white-space: nowrap;
     transition: height 0.12s ease;
   }
   .bar-label {
-    font-size: 9px; font-weight: 700; color: #fff;
+    font-size: 10px; font-weight: 700; color: #fff;
     padding: 0 6px; line-height: 1;
     opacity: 0; pointer-events: none;
     transition: opacity 0.1s ease 0.04s;
     font-variant-numeric: tabular-nums;
-    text-shadow: 0 0 3px rgba(0,0,0,0.45);
+    text-shadow: 0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55);
+    flex-shrink: 0;
   }
   .gantt-bar:hover { height: 18px; z-index: 10; }
   .gantt-plan:hover, .gantt-actual:hover, .gantt-overrun:hover { height: 16px; z-index: 10; }
@@ -1245,7 +1248,7 @@ function buildTimeline(tasks, teamFilter) {
         if (actLeft < planEdPx) {
           ganttInner += seg(actLeft, planEdPx - actLeft, 'background:' + color + ';border-bottom-right-radius:0;', actClass, actLabel);
         }
-        const overrunLabel = 'Overrun: planned ' + fmtShort(ed) + ' · actual ' + actEndStr;
+        const overrunLabel = 'Late: ' + fmtShort(ed) + ' → ' + actEndStr;
         ganttInner += seg(planEdPx, actEdPx - planEdPx, '', 'gantt-overrun', overrunLabel);
       } else {
         ganttInner += seg(actLeft, actEdPx - actLeft, 'background:' + color + ';', actClass, actLabel);
@@ -1350,7 +1353,7 @@ function buildTimeline(tasks, teamFilter) {
     row.addEventListener('mouseenter', function() {
       tooltipTimer = setTimeout(function() {
         if (!onNameCell) showRowTooltip(row);
-      }, 400);
+      }, 8000);
     });
 
     // Task name cell: name-only instantly; full tooltip never shows while here
@@ -1375,7 +1378,7 @@ function buildTimeline(tasks, teamFilter) {
       nameCell.addEventListener('mouseleave', function() {
         onNameCell = false;
         tooltip.classList.remove('show');
-        tooltipTimer = setTimeout(function() { if (!onNameCell) showRowTooltip(row); }, 400);
+        tooltipTimer = setTimeout(function() { if (!onNameCell) showRowTooltip(row); }, 8000);
       });
     }
 
