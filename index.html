@@ -371,34 +371,33 @@
   .task-row:hover .gantt-actual,
   .task-row:hover .gantt-overrun { opacity: 1; }
 
-  /* Bar hover label — small floating chip above the bar showing plan/actual dates. */
-  .gantt-bar::after,
-  .gantt-plan::after,
-  .gantt-actual::after,
-  .gantt-overrun::after {
-    content: attr(data-label);
-    position: absolute;
-    bottom: 100%; left: 50%;
-    transform: translateX(-50%);
-    margin-bottom: 6px;
-    background: rgba(15,23,42,0.96);
-    color: #e2e8f0;
-    font-size: 10px; font-weight: 600;
-    letter-spacing: 0.02em;
-    padding: 3px 8px;
-    border-radius: 4px;
-    white-space: nowrap;
-    pointer-events: none;
-    border: 1px solid rgba(148,163,184,0.18);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
-    opacity: 0;
-    transition: opacity 0.12s ease;
-    z-index: 20;
+  /* Bar hover — segment grows in height and reveals date label inside.
+     Mirrors the status-dot expand pattern: same colour, just thicker, with
+     text fading in inside the bar. */
+  .gantt-bar, .gantt-plan, .gantt-actual, .gantt-overrun {
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; white-space: nowrap;
+    transition: height 0.12s ease;
   }
-  .gantt-bar:hover::after,
-  .gantt-plan:hover::after,
-  .gantt-actual:hover::after,
-  .gantt-overrun:hover::after { opacity: 1; }
+  .bar-label {
+    font-size: 9px; font-weight: 700; color: #fff;
+    padding: 0 6px; line-height: 1;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.1s ease 0.04s;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 3px rgba(0,0,0,0.45);
+  }
+  .gantt-bar:hover { height: 18px; z-index: 10; }
+  .gantt-plan:hover, .gantt-actual:hover, .gantt-overrun:hover { height: 16px; z-index: 10; }
+  .gantt-plan:hover { background: rgba(148,163,184,0.9); }
+  .gantt-overrun:hover {
+    background-image: none;
+    background-color: rgba(244,112,103,0.85);
+  }
+  .gantt-bar:hover .bar-label,
+  .gantt-plan:hover .bar-label,
+  .gantt-actual:hover .bar-label,
+  .gantt-overrun:hover .bar-label { opacity: 1; }
   .ideal-diamond {
     position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg);
     width: 8px; height: 8px; background: var(--amber); border: 1px solid rgba(229,164,75,0.5); z-index: 3;
@@ -1208,15 +1207,15 @@ function buildTimeline(tasks, teamFilter) {
     const actSd_   = parseDate(actSdStr);
     const actEd_   = parseDate(actEdStr);
     const hasActual = actSd_ && actEd_;
-    // Helper: build the style+onclick attrs for one segment. `label` becomes
-    // the CSS hover chip (data-label attr → ::after content).
+    // Helper: build the style+onclick attrs for one segment. `label` is
+    // rendered as a child span that fades in when the bar is hovered.
     function seg(left, width, extraStyle, klass, label) {
       var base = 'left:' + left + 'px;width:' + Math.max(3, width) + 'px;' + extraStyle;
-      var labelAttr = label ? ' data-label="' + label.replace(/"/g, '&quot;') + '"' : '';
+      var labelHtml = label ? '<span class="bar-label">' + label + '</span>' : '';
       if (t.epicUrl) {
-        return '<div class="' + klass + '"' + labelAttr + ' style="' + base + 'cursor:pointer;" onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')"></div>';
+        return '<div class="' + klass + '" style="' + base + 'cursor:pointer;" onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')">' + labelHtml + '</div>';
       }
-      return '<div class="' + klass + '"' + labelAttr + ' style="' + base + '"></div>';
+      return '<div class="' + klass + '" style="' + base + '">' + labelHtml + '</div>';
     }
 
     var planLabel = (sd && ed) ? 'Plan: ' + fmtShort(sd) + ' → ' + fmtShort(ed) : '';
