@@ -1145,9 +1145,6 @@ function buildTimeline(tasks, teamFilter) {
     const actSd_   = parseDate(actSdStr);
     const actEd_   = parseDate(actEdStr);
     const hasActual = actSd_ && actEd_;
-    const clickAttrs = t.epicUrl
-      ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')" title="Open in Jira" cursor:pointer'
-      : '';
     // Helper: build the style+onclick attrs for one segment.
     function seg(left, width, extraStyle, klass) {
       var base = 'left:' + left + 'px;width:' + Math.max(3, width) + 'px;' + extraStyle;
@@ -1265,14 +1262,17 @@ function buildTimeline(tasks, teamFilter) {
       html += '<div class="tt-row"><span class="tt-label">Plan Start</span><span class="tt-value">' + (d.start||'-') + '</span></div>';
       html += '<div class="tt-row"><span class="tt-label">Plan End</span><span class="tt-value">' + (d.end||'-') + '</span></div>';
       // Actual Start/End rows: explicit dates win, otherwise annotate fallback source.
+      // All Jira date strings get sliced to YYYY-MM-DD — the field can be either Date
+      // (already short) or DateTime (long ISO with time/zone). Slicing is idempotent on
+      // already-short values and trims the noisy time-zone tail off DateTime values.
       var ttStatusLower = (d.status || '').toLowerCase().trim();
       if (d.actualStart) {
-        html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.actualStart + '</span></div>';
+        html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">' + d.actualStart.slice(0, 10) + '</span></div>';
       } else if (d.statusChangedAt && (ttStatusLower === 'in progress' || /closed|done|complete/.test(ttStatusLower))) {
         html += '<div class="tt-row"><span class="tt-label">Actual Start</span><span class="tt-value">~' + d.statusChangedAt.slice(0, 10) + ' <span style="color:var(--text-muted);font-size:10px">(status transition)</span></span></div>';
       }
       if (d.actualEnd) {
-        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.actualEnd + '</span></div>';
+        html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">' + d.actualEnd.slice(0, 10) + '</span></div>';
       } else if (/closed|done|complete/.test(ttStatusLower) && d.resolvedAt) {
         html += '<div class="tt-row"><span class="tt-label">Actual End</span><span class="tt-value">~' + d.resolvedAt.slice(0, 10) + ' <span style="color:var(--text-muted);font-size:10px">(resolved)</span></span></div>';
       } else if (ttStatusLower === 'in progress') {
@@ -1519,7 +1519,9 @@ function explainSchedule(t, s) {
   // chip is the neutral "Done" pill.
   if (isClosed) {
     var endStr = t.actualEnd || t.resolvedAt || '';
-    var endLabel = t.actualEnd ? endStr : (endStr ? endStr.slice(0, 10) + ' (resolved)' : '');
+    // Slice to YYYY-MM-DD for display — either field could be a DateTime ISO.
+    var endShort = endStr ? endStr.slice(0, 10) : '';
+    var endLabel = t.actualEnd ? endShort : (endShort ? endShort + ' (resolved)' : '');
     if (!t.end || !endStr) {
       return 'Closed (status: ' + statusLabel + '). Missing actual or planned end date — cannot compare to plan.';
     }
@@ -1553,7 +1555,7 @@ function explainSchedule(t, s) {
         lateNote = ' Started ' + ed + ' day' + (ed === 1 ? '' : 's') + ' early (planned ' + t.start + ').';
       }
     }
-    var startedStr = t.actualStart ? 'Started ' + t.actualStart + ' in Jira.' : 'Status: In Progress.';
+    var startedStr = t.actualStart ? 'Started ' + t.actualStart.slice(0, 10) + ' in Jira.' : 'Status: In Progress.';
     return startedStr + lateNote + ' On Track until planned end ' + (t.end || '—') + ' is reached.';
   }
 
