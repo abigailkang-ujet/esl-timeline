@@ -241,15 +241,26 @@ function fetchJiraLive(jiraKeys) {
         blockedBy: [],   // Jira keys that block this task (Blocks type, inward)
         relates:   [],   // Jira keys with Relates link (bidirectional)
       };
-      // Parse issuelinks. Other types (Cloners / Duplicate / Causes / etc.) are ignored.
+      // Parse issuelinks. Other types (Cloners / Duplicate / Causes / etc.) are
+      // ignored. Match permissively because instances differ — e.g. some Jira
+      // setups use "Relates" while others use "Relates To" or "Related". We
+      // sniff both `type.name` and `type.inward` / `type.outward` strings.
       (f.issuelinks || []).forEach(function(link) {
-        var typeName = (link.type && link.type.name) || '';
-        if (typeName === 'Blocks') {
+        var t = link.type || {};
+        var nameL    = String(t.name    || '').toLowerCase();
+        var inwardL  = String(t.inward  || '').toLowerCase();
+        var outwardL = String(t.outward || '').toLowerCase();
+        var isBlocks  = nameL === 'blocks' || /\bblock/.test(inwardL + ' ' + outwardL);
+        var isRelates = /^relat/.test(nameL) || (/relat/.test(inwardL) && /relat/.test(outwardL));
+        if (isBlocks) {
           if (link.outwardIssue && link.outwardIssue.key) entry.blocking.push(link.outwardIssue.key);
           if (link.inwardIssue  && link.inwardIssue.key)  entry.blockedBy.push(link.inwardIssue.key);
-        } else if (typeName === 'Relates') {
+        } else if (isRelates) {
           var other = (link.outwardIssue || link.inwardIssue || {}).key;
           if (other) entry.relates.push(other);
+        } else if (t.name) {
+          // Log once-per-call so we can see custom link types in production
+          Logger.log('[jira-live] ignored issuelink type: ' + t.name + ' (inward="' + t.inward + '", outward="' + t.outward + '")');
         }
       });
       byKey[i.key] = entry;
