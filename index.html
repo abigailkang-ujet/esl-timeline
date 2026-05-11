@@ -391,13 +391,21 @@
   .bar-label {
     font-size: 10px; font-weight: 700; color: #fff;
     padding: 2px 6px; line-height: 1;
-    background: rgba(15,23,42,0.88);
     border-radius: 3px;
     opacity: 0; pointer-events: none;
     transition: opacity 0.1s ease 0.04s;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
+  /* Backdrop = same colour family as the bar — label reads as an extension of
+     the bar, not a foreign chip stuck next to it. Inline `background:<team>`
+     on .gantt-bar / .gantt-actual is inherited by the child label. Plan and
+     overrun pick their own solid colour since plan's bg is translucent grey
+     and overrun's is a hatch gradient. */
+  .gantt-bar > .bar-label,
+  .gantt-actual > .bar-label { background-color: inherit; }
+  .gantt-plan > .bar-label   { background-color: #64748b; }
+  .gantt-overrun > .bar-label { background-color: var(--red); }
   .gantt-bar:hover { height: 18px; z-index: 10; }
   .gantt-plan:hover, .gantt-actual:hover, .gantt-overrun:hover { height: 16px; z-index: 10; }
   .gantt-plan:hover { background: rgba(148,163,184,0.9); }
