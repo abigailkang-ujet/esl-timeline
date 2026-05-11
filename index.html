@@ -409,8 +409,21 @@
      and overrun's is a hatch gradient. */
   .gantt-bar > .bar-label,
   .gantt-actual > .bar-label { background-color: inherit; }
-  .gantt-plan > .bar-label   { background-color: #94a3b8; color: #1e293b; }
   .gantt-overrun > .bar-label { background-color: var(--red); }
+  /* Plan label: no chip — text sits directly on the plan bar. Theme-adaptive
+     colour + halo text-shadow keep it legible on the bar AND in the bit that
+     overflows onto the row background. Any solid backdrop here read as a
+     darker chip than the bar's translucent grey. */
+  .gantt-plan > .bar-label {
+    background-color: transparent;
+    color: #f1f5f9;
+    text-shadow: 0 0 3px rgba(15,23,42,0.95), 0 0 6px rgba(15,23,42,0.6);
+    padding: 0 4px;
+  }
+  body.light-mode .gantt-plan > .bar-label {
+    color: #0f172a;
+    text-shadow: 0 0 3px rgba(255,255,255,0.95), 0 0 6px rgba(255,255,255,0.7);
+  }
   .gantt-bar:hover { height: 18px; z-index: 10; }
   .gantt-plan:hover, .gantt-actual:hover, .gantt-overrun:hover { height: 16px; z-index: 10; }
   .gantt-plan:hover { background: rgba(148,163,184,0.9); }
