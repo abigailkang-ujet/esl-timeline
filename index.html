@@ -224,6 +224,13 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden; max-width: 260px; word-break: break-word;
   }
+  /* On hover, drop the 2-line clamp so the full task name renders in place
+     (mirrors the status dot / bar expand pattern — no separate tooltip). */
+  td.task-name-cell:hover .task-name-wrap {
+    display: block;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+  }
 
   th.gantt-col { padding: 0; border-bottom: 1px solid var(--border); background: var(--bg-card); position: sticky; top: 0; z-index: 4; border-top-right-radius: 12px; }
   td.gantt-col { padding: 0; border-bottom: 1px solid var(--border); position: relative; height: 38px; background: var(--bg-elevated); }
@@ -1357,28 +1364,17 @@ function buildTimeline(tasks, teamFilter) {
       }, 8000);
     });
 
-    // Task name cell: name-only instantly; full tooltip never shows while here
+    // Task name cell: full name now renders inline via CSS hover (no tooltip).
+    // Still suppress the row tooltip while the cursor is on this cell so the
+    // expanded name has the spotlight.
     var nameCell = row.querySelector('td.task-name-cell');
     if (nameCell) {
-      nameCell.addEventListener('mouseenter', function(e) {
+      nameCell.addEventListener('mouseenter', function() {
         onNameCell = true;
         clearTimeout(tooltipTimer);
-        try {
-          var d = JSON.parse(row.dataset.tt);
-          var epicLabel = row.getAttribute('data-epic');
-          tooltip.innerHTML = '<div style="font-size:12px;font-weight:600;color:#dde3ee;line-height:1.5">' + (epicLabel ? '<span style="color:#94a3b8;font-weight:500">' + epicLabel + '</span> ' : '') + d.task + '</div>';
-          tooltip.classList.add('show');
-          var ttW = tooltip.offsetWidth, ttH = tooltip.offsetHeight;
-          var left = e.clientX + 16, top = e.clientY + 10;
-          if (left + ttW > window.innerWidth  - 8) left = e.clientX - ttW - 16;
-          if (top  + ttH > window.innerHeight - 8) top  = e.clientY - ttH - 10;
-          tooltip.style.left = left + 'px';
-          tooltip.style.top  = top  + 'px';
-        } catch(e2) {}
       });
       nameCell.addEventListener('mouseleave', function() {
         onNameCell = false;
-        tooltip.classList.remove('show');
         tooltipTimer = setTimeout(function() { if (!onNameCell) showRowTooltip(row); }, 8000);
       });
     }
