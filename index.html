@@ -225,11 +225,16 @@
     overflow: hidden; max-width: 260px; word-break: break-word;
   }
   /* On hover, drop the 2-line clamp so the full task name renders in place
-     (mirrors the status dot / bar expand pattern — no separate tooltip). */
+     (mirrors the status dot / bar expand pattern — no separate tooltip).
+     white-space: normal is required because `table.timeline td.info-col`
+     wins specificity over `td.task-name-cell`'s `white-space: normal`, so
+     without this override the unclamped text would render as a single
+     nowrap line and bleed into the date columns. */
   td.task-name-cell:hover .task-name-wrap {
     display: block;
     -webkit-line-clamp: unset;
     overflow: visible;
+    white-space: normal;
   }
 
   th.gantt-col { padding: 0; border-bottom: 1px solid var(--border); background: var(--bg-card); position: sticky; top: 0; z-index: 4; border-top-right-radius: 12px; }
