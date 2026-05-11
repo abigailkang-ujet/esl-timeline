@@ -426,7 +426,8 @@
   }
   .gantt-bar:hover { height: 18px; z-index: 10; }
   .gantt-plan:hover, .gantt-actual:hover, .gantt-overrun:hover { height: 16px; z-index: 10; }
-  .gantt-plan:hover { background: rgba(148,163,184,0.9); }
+  /* No alpha bump on plan:hover anymore — the label is transparent + shadowed,
+     so the bar can stay its natural translucent grey when hovered. */
   .gantt-overrun:hover {
     background-image: none;
     background-color: rgba(244,112,103,0.85);
