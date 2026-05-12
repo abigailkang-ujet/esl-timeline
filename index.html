@@ -1286,7 +1286,11 @@ function buildTimeline(tasks, teamFilter) {
       const planEdPx = ed ? dayToPx(dayOffset(ed)) : null;
       const isOngoing = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
       const actClass = 'gantt-actual' + (isOngoing ? ' in-progress-ongoing' : '');
-      const actEndStr = isOngoing ? 'today' : fmtShort(actEd_);
+      // For ongoing tasks (In Progress + no recorded actualEnd) the bar visually
+      // ends at today as a placeholder, but the label text must NOT claim
+      // `today` as an end — that reads like a recorded end date. Say "ongoing"
+      // instead. The bar shape carries the visual cue.
+      const actEndStr = isOngoing ? 'ongoing' : fmtShort(actEd_);
       const actLabel  = 'Actual: ' + fmtShort(actSd_) + ' → ' + actEndStr;
 
       if (planEdPx !== null && actEdPx > planEdPx) {
