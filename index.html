@@ -350,6 +350,7 @@
   .gantt-bar {
     position: absolute; height: 10px; border-radius: 10px;
     top: 50%; transform: translateY(-50%); opacity: 0.8; min-width: 4px; z-index: 2;
+    background-color: var(--c);
   }
   .task-row:hover .gantt-bar { opacity: 1; }
 
@@ -366,10 +367,14 @@
     position: absolute; top: 50%; height: 6px;
     border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;
     opacity: 0.92; z-index: 2; min-width: 3px;
+    background-color: var(--c);
   }
+  /* In Progress + no actualEnd: fade right edge to suggest "ongoing".
+     Implemented as a bg gradient (not mask-image) so the .bar-label child
+     stays fully solid — masking the whole element also masked the label. */
   .gantt-actual.in-progress-ongoing {
-    -webkit-mask-image: linear-gradient(90deg, black 70%, transparent 100%);
-            mask-image: linear-gradient(90deg, black 70%, transparent 100%);
+    background-color: transparent;
+    background-image: linear-gradient(90deg, var(--c) 70%, transparent 100%);
   }
   .gantt-overrun {
     position: absolute; top: 50%; height: 6px;
@@ -408,7 +413,7 @@
      overrun pick their own solid colour since plan's bg is translucent grey
      and overrun's is a hatch gradient. */
   .gantt-bar > .bar-label,
-  .gantt-actual > .bar-label { background-color: inherit; }
+  .gantt-actual > .bar-label { background-color: var(--c); }
   .gantt-overrun > .bar-label { background-color: var(--red); }
   /* Plan label: no chip — text sits directly on the plan bar. Theme-adaptive
      colour + halo text-shadow keep it legible on the bar AND in the bit that
@@ -1258,11 +1263,17 @@ function buildTimeline(tasks, teamFilter) {
 
     var planLabel = (sd && ed) ? 'Plan: ' + fmtShort(sd) + ' → ' + fmtShort(ed) : '';
 
+    // Team colour passed via --c CSS var so children (the label) and pseudo-
+    // states (in-progress-ongoing gradient) can reference it without re-reading
+    // the inline `background:` string. background-color: var(--c) is set by CSS
+    // on .gantt-bar / .gantt-actual; the ongoing gradient overrides it.
+    var colorVar = '--c:' + color + ';';
+
     if (!hasActual && sd && ed) {
       // Case 1 — plan-only single bar (legacy class .gantt-bar)
       const left = dayToPx(dayOffset(sd));
       const width = Math.max(3, dayToPx(dayOffset(ed)) - left);
-      ganttInner += seg(left, width, 'background:' + color + ';', 'gantt-bar', planLabel);
+      ganttInner += seg(left, width, colorVar, 'gantt-bar', planLabel);
     } else if (hasActual) {
       // Case 2/3 — half-split
       if (sd && ed) {
@@ -1281,12 +1292,12 @@ function buildTimeline(tasks, teamFilter) {
       if (planEdPx !== null && actEdPx > planEdPx) {
         // Overrun — split actual into within-plan + overrun
         if (actLeft < planEdPx) {
-          ganttInner += seg(actLeft, planEdPx - actLeft, 'background:' + color + ';border-bottom-right-radius:0;', actClass, actLabel);
+          ganttInner += seg(actLeft, planEdPx - actLeft, colorVar + 'border-bottom-right-radius:0;', actClass, actLabel);
         }
         const overrunLabel = 'Late: ' + fmtShort(ed) + ' → ' + actEndStr;
         ganttInner += seg(planEdPx, actEdPx - planEdPx, '', 'gantt-overrun', overrunLabel);
       } else {
-        ganttInner += seg(actLeft, actEdPx - actLeft, 'background:' + color + ';', actClass, actLabel);
+        ganttInner += seg(actLeft, actEdPx - actLeft, colorVar, actClass, actLabel);
       }
     }
     if (id) ganttInner += '<div class="ideal-diamond" style="left:' + dayToPx(dayOffset(id)) + 'px"></div>';
