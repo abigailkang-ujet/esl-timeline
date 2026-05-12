@@ -343,10 +343,11 @@
   }
   a.prd-badge-link:hover { filter: brightness(1.15); }
   .schedule-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
-  .schedule-behind   { color: var(--red);   background: var(--red-bg);   border-color: rgba(244,112,103,0.2); }
-  .schedule-on-track { color: var(--green); background: var(--green-bg); border-color: rgba(76,175,130,0.2); }
-  .schedule-ahead    { color: var(--blue);  background: var(--blue-bg);  border-color: rgba(91,138,245,0.2); }
-  .schedule-done     { color: var(--text-muted); background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.25); }
+  .schedule-behind     { color: var(--red);   background: var(--red-bg);   border-color: rgba(244,112,103,0.2); }
+  .schedule-late-start { color: var(--amber); background: var(--amber-bg); border-color: rgba(229,164,75,0.25); }
+  .schedule-on-track   { color: var(--green); background: var(--green-bg); border-color: rgba(76,175,130,0.2); }
+  .schedule-ahead      { color: var(--blue);  background: var(--blue-bg);  border-color: rgba(91,138,245,0.2); }
+  .schedule-done       { color: var(--text-muted); background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.25); }
 
   .prd-missing { color: var(--amber); background: var(--amber-bg); border-color: rgba(229,164,75,0.2); }
   .prd-draft   { color: var(--amber); background: var(--amber-bg); border-color: rgba(229,164,75,0.2); opacity: 0.75; }
@@ -959,7 +960,7 @@ function buildSummary() {
   });
   const scheduleKeys = Object.keys(scheduleCounts);
   if (scheduleKeys.length > 0) {
-    const SCHEDULE_ORDER = ['On Track', 'Behind', 'Ahead', 'Done', '—'];
+    const SCHEDULE_ORDER = ['On Track', 'Late Start', 'Behind', 'Ahead', 'Done', '—'];
     scheduleKeys.sort(function(a, b) {
       var ai = SCHEDULE_ORDER.indexOf(a), bi = SCHEDULE_ORDER.indexOf(b);
       if (ai === -1 && bi === -1) return a.localeCompare(b);
@@ -1600,11 +1601,13 @@ function getScheduleStatus(t) {
   if (isInProgress) return 'On Track';
 
   // Pre-start (To Do / Untriaged / Blocked / anything else not closed-or-progressing):
-  // ignore notion dates entirely. Only flag Behind if planned start has passed.
+  // ignore notion dates entirely. Only flag Late Start if planned start has
+  // passed. Distinct from 'Behind' (which is reserved for Closed tasks that
+  // finished past the planned end) — different semantics, different chip.
   if (t.start) {
     var startDate = parseDate(t.start);
     var today = new Date(); today.setHours(0,0,0,0);
-    if (startDate && startDate < today) return 'Behind';
+    if (startDate && startDate < today) return 'Late Start';
   }
   return '—';
 }
@@ -1612,10 +1615,11 @@ function getScheduleStatus(t) {
 function buildScheduleBadge(t) {
   var s = getScheduleStatus(t);
   var explain = explainSchedule(t, s).replace(/"/g, '&quot;');
-  if (s === 'Behind')   return '<span class="schedule-badge schedule-behind" title="' + explain + '">Behind</span>';
-  if (s === 'Ahead')    return '<span class="schedule-badge schedule-ahead" title="' + explain + '">Ahead</span>';
-  if (s === 'On Track') return '<span class="schedule-badge schedule-on-track" title="' + explain + '">On Track</span>';
-  if (s === 'Done')     return '<span class="schedule-badge schedule-done" title="' + explain + '">Done</span>';
+  if (s === 'Behind')     return '<span class="schedule-badge schedule-behind" title="' + explain + '">Behind</span>';
+  if (s === 'Late Start') return '<span class="schedule-badge schedule-late-start" title="' + explain + '">Late Start</span>';
+  if (s === 'Ahead')      return '<span class="schedule-badge schedule-ahead" title="' + explain + '">Ahead</span>';
+  if (s === 'On Track')   return '<span class="schedule-badge schedule-on-track" title="' + explain + '">On Track</span>';
+  if (s === 'Done')       return '<span class="schedule-badge schedule-done" title="' + explain + '">Done</span>';
   return '<span style="color:var(--text-muted)" title="' + explain + '">—</span>';
 }
 
@@ -1675,17 +1679,18 @@ function explainSchedule(t, s) {
   }
 
   // Pre-start (To Do / Untriaged / Blocked / etc.).
-  if (s === 'Behind' && t.start) {
+  if (s === 'Late Start' && t.start) {
     return 'Status: ' + statusLabel + '. Planned start ' + t.start + ' has passed, but the task has not started in Jira yet.';
   }
   return 'Status: ' + statusLabel + '. Planned start ' + (t.start || '—') + ' has not yet been reached.';
 }
 
 function scheduleColor(s) {
-  if (s === 'Behind')   return 'var(--red)';
-  if (s === 'Ahead')    return 'var(--blue)';
-  if (s === 'On Track') return 'var(--green)';
-  if (s === 'Done')     return 'var(--text-muted)';
+  if (s === 'Behind')     return 'var(--red)';
+  if (s === 'Late Start') return 'var(--amber)';
+  if (s === 'Ahead')      return 'var(--blue)';
+  if (s === 'On Track')   return 'var(--green)';
+  if (s === 'Done')       return 'var(--text-muted)';
   return '#94a3b8';
 }
 
