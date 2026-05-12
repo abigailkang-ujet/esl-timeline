@@ -245,6 +245,15 @@
     text-transform: uppercase; letter-spacing: 0.08em;
     background: var(--bg-elevated) !important; border-bottom: 1px solid var(--border) !important;
   }
+  /* Freeze the team-header info td on horizontal scroll — same idea as the
+     sticky Priority / Task cells, but covering the whole row-spanning meta
+     band so the team name + Lead/PM/PMO stay visible when the user scrolls
+     deep into the Gantt area. */
+  .team-header td.info-col {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+  }
   /* Team header inline meta — Lead/PM relocated 2026-05-07 (was per-task columns) */
   .team-header .team-count {
     font-weight: 400; font-size: 11px; opacity: 0.6;
