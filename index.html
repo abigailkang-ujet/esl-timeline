@@ -1597,8 +1597,18 @@ function getScheduleStatus(t) {
     return 'On Track';
   }
 
-  // In Progress: assume On Track (we can't compare end dates yet).
-  if (isInProgress) return 'On Track';
+  // In Progress: normally On Track (we can't compare end dates yet). But if
+  // today is already past the planned end and the task is still in progress
+  // (no actualEnd recorded), the chip flips to 'Behind' — the plan deadline
+  // has been blown through even though the task hasn't formally completed.
+  if (isInProgress) {
+    if (t.end) {
+      var planEnd = parseDate(t.end);
+      var today = new Date(); today.setHours(0,0,0,0);
+      if (planEnd && planEnd < today) return 'Behind';
+    }
+    return 'On Track';
+  }
 
   // Pre-start (To Do / Untriaged / Blocked / anything else not closed-or-progressing):
   // ignore notion dates entirely. Only flag Late Start if planned start has
@@ -1659,8 +1669,9 @@ function explainSchedule(t, s) {
     return 'Closed ' + endLabel + ' vs planned end ' + t.end + ' = within ±3 days.';
   }
 
-  // In Progress: surface late / early start vs planned (the chip itself is
-  // On Track until planned end is reached).
+  // In Progress: surface late / early start vs planned. Chip is On Track until
+  // planned end is reached; once today is past planned end and the task is
+  // still in progress (no actualEnd), the chip flips to Behind.
   if (isInProgress) {
     var actualStart = parseDate(t.actualStart);
     var plannedStart = parseDate(t.start);
@@ -1675,6 +1686,13 @@ function explainSchedule(t, s) {
       }
     }
     var startedStr = t.actualStart ? 'Started ' + t.actualStart.slice(0, 10) + ' in Jira.' : 'Status: In Progress.';
+    if (s === 'Behind' && t.end) {
+      var planEndDate = parseDate(t.end);
+      var todayD = new Date(); todayD.setHours(0,0,0,0);
+      var overshoot = planEndDate ? Math.round((todayD - planEndDate) / DAY_MS) : 0;
+      var dayW = overshoot === 1 ? 'day' : 'days';
+      return startedStr + lateNote + ' Planned end ' + t.end + ' has passed (' + overshoot + ' ' + dayW + ' ago) and the task is still in progress.';
+    }
     return startedStr + lateNote + ' On Track until planned end ' + (t.end || '—') + ' is reached.';
   }
 
