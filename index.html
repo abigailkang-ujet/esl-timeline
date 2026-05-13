@@ -236,6 +236,24 @@
     overflow: visible;
     white-space: normal;
   }
+  /* Jira key badge — hidden by default, revealed on task name hover (same
+     trigger as the name expand-in-place). Sibling of .task-name-wrap so the
+     2-line clamp on the name doesn't hide it. */
+  .task-jira-key {
+    display: none;
+    margin-top: 4px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    width: fit-content;
+  }
+  td.task-name-cell:hover .task-jira-key { display: inline-block; }
 
   th.gantt-col { padding: 0; border-bottom: 1px solid var(--border); background: var(--bg-card); position: sticky; top: 0; z-index: 4; border-top-right-radius: 12px; }
   td.gantt-col { padding: 0; border-bottom: 1px solid var(--border); position: relative; height: 38px; background: var(--bg-elevated); }
@@ -558,6 +576,7 @@
   body.light-mode .grid-line-major { background: rgba(0,0,0,0.18); }
   body.light-mode .pri-Low,
   body.light-mode .pri-default { background: rgba(0,0,0,0.06); }
+  body.light-mode .task-jira-key { background: rgba(0,0,0,0.05); }
   body.light-mode .task-name-cell a:hover { color: var(--accent); }
   body.light-mode .filter-btn.active { color: var(--accent); }
   body.light-mode .at-risk td.info-col { background: rgba(244,112,103,0.06) !important; }
@@ -1245,7 +1264,8 @@ function buildTimeline(tasks, teamFilter) {
     const linkInner = t.epicUrl
       ? '<a href="' + t.epicUrl + '" target="_blank">' + t.task + '</a>'
       : t.task;
-    const link = '<span class="task-name-wrap">' + linkInner + '</span>';
+    const link = '<span class="task-name-wrap">' + linkInner + '</span>'
+      + (t.epic ? '<span class="task-jira-key">' + t.epic + '</span>' : '');
     var ganttInner = '<div class="gantt-area" style="width:' + GANTT_W + 'px;position:relative;">';
     // Body verticals removed entirely (2026-04-29) — header dividers carry the time anchoring.
     const todayDays = dayOffset(today);
