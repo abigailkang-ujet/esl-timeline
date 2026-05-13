@@ -241,7 +241,7 @@
      2-line clamp on the name doesn't hide it. */
   .task-jira-key {
     display: none;
-    margin-top: 4px;
+    margin-bottom: 4px;
     padding: 1px 6px;
     border-radius: 4px;
     font-family: ui-monospace, monospace;
@@ -1264,8 +1264,8 @@ function buildTimeline(tasks, teamFilter) {
     const linkInner = t.epicUrl
       ? '<a href="' + t.epicUrl + '" target="_blank">' + t.task + '</a>'
       : t.task;
-    const link = '<span class="task-name-wrap">' + linkInner + '</span>'
-      + (t.epic ? '<span class="task-jira-key">' + t.epic + '</span>' : '');
+    const link = (t.epic ? '<span class="task-jira-key">' + t.epic + '</span>' : '')
+      + '<span class="task-name-wrap">' + linkInner + '</span>';
     var ganttInner = '<div class="gantt-area" style="width:' + GANTT_W + 'px;position:relative;">';
     // Body verticals removed entirely (2026-04-29) — header dividers carry the time anchoring.
     const todayDays = dayOffset(today);
