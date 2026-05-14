@@ -511,6 +511,23 @@
     white-space: nowrap; flex-shrink: 0;
   }
   .theme-btn:hover { border-color: rgba(255,255,255,0.22); color: var(--text-primary); }
+  .theme-btn:disabled { opacity: 0.5; cursor: wait; }
+
+  /* ── Export dropdown ── */
+  .export-wrap { position: relative; display: inline-block; }
+  .export-menu {
+    display: none; position: absolute; top: 100%; right: 0; margin-top: 4px;
+    background: var(--bg-card); border: 1px solid var(--border-mid);
+    border-radius: 8px; padding: 4px; z-index: 200;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35); min-width: 150px;
+  }
+  .export-menu button {
+    display: block; width: 100%; text-align: left;
+    padding: 8px 12px; border: none; background: none;
+    color: var(--text-secondary); font-size: 13px;
+    cursor: pointer; border-radius: 6px; font-family: inherit; font-weight: 500;
+  }
+  .export-menu button:hover { background: var(--bg-hover); color: var(--text-primary); }
 
   /* ── Grid lines (theme-aware) ── */
   .grid-line-minor { background: rgba(255,255,255,0.04); }
@@ -572,6 +589,7 @@
   }
   body.light-mode .strip-pill:hover { box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08); }
   body.light-mode .theme-btn:hover { border-color: rgba(0,0,0,0.25); }
+  body.light-mode .export-menu { box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
   body.light-mode .grid-line-minor { background: rgba(0,0,0,0.05); }
   body.light-mode .grid-line-major { background: rgba(0,0,0,0.18); }
   body.light-mode .pri-Low,
@@ -594,6 +612,8 @@
     color: #64748b;
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div id="scroll-wrap">
@@ -604,6 +624,13 @@
     <p class="subtitle" style="margin-bottom:0;font-size:12px;opacity:0.7">Gantt chart view &middot; data live from Google Sheets &amp; Notion</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
+    <div class="export-wrap" id="export-wrap">
+      <button class="theme-btn" id="export-btn" onclick="toggleExportMenu()">Export &#9662;</button>
+      <div class="export-menu" id="export-menu">
+        <button onclick="exportTimeline('png')">&#128247; Download PNG</button>
+        <button onclick="exportTimeline('pdf')">&#128196; Download PDF</button>
+      </div>
+    </div>
     <button class="theme-btn" id="tour-trigger" onclick="runTour()" title="Show what's new">Guide</button>
     <button class="theme-btn" id="theme-toggle" onclick="toggleTheme()">Light Mode</button>
   </div>
@@ -2194,6 +2221,106 @@ function toggleTheme() {
     }
   } catch(e) {}
 })();
+
+/* ── Export (PNG / PDF) ── */
+function toggleExportMenu() {
+  var menu = document.getElementById('export-menu');
+  if (!menu) return;
+  var isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(function() {
+      document.addEventListener('click', closeExportOnOutside);
+    }, 0);
+  }
+}
+function closeExportOnOutside(e) {
+  if (!e.target.closest('#export-wrap')) {
+    var menu = document.getElementById('export-menu');
+    if (menu) menu.style.display = 'none';
+    document.removeEventListener('click', closeExportOnOutside);
+  }
+}
+
+function exportTimeline(format) {
+  var menu = document.getElementById('export-menu');
+  if (menu) menu.style.display = 'none';
+
+  var btn = document.getElementById('export-btn');
+  var origText = btn.innerHTML;
+  btn.innerHTML = 'Exporting&#8230;';
+  btn.disabled = true;
+
+  var scrollWrap = document.getElementById('scroll-wrap');
+  var tooltip = document.getElementById('tooltip');
+  var tourOverlay = document.getElementById('tour-overlay');
+
+  if (tooltip) tooltip.style.display = 'none';
+  if (tourOverlay) tourOverlay.style.display = 'none';
+
+  /* temporarily expand for full-content capture */
+  var origH   = scrollWrap.style.height;
+  var origOF  = scrollWrap.style.overflow;
+  var origBOF = document.body.style.overflow;
+  scrollWrap.style.height   = 'auto';
+  scrollWrap.style.overflow = 'visible';
+  document.body.style.overflow = 'visible';
+
+  var bgColor = document.body.classList.contains('light-mode') ? '#dfe3f0' : '#0d1117';
+
+  html2canvas(scrollWrap, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: bgColor,
+    logging: false,
+    windowWidth: scrollWrap.scrollWidth
+  }).then(function(canvas) {
+    restore();
+    var dateStr = new Date().toISOString().slice(0, 10);
+
+    if (format === 'png') {
+      var link = document.createElement('a');
+      link.download = 'ESL-Timeline-' + dateStr + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } else if (format === 'pdf') {
+      var jsPDF = window.jspdf.jsPDF;
+      var imgData = canvas.toDataURL('image/png');
+      var pdf = new jsPDF('l', 'mm', 'a4');
+      var pdfW = pdf.internal.pageSize.getWidth();
+      var pdfH = pdf.internal.pageSize.getHeight();
+
+      /* scale image width to fit page width */
+      var ratio   = pdfW / canvas.width;
+      var scaledH = canvas.height * ratio;
+
+      if (scaledH <= pdfH) {
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, scaledH);
+      } else {
+        /* multi-page: draw full image offset upward per page */
+        var pages = Math.ceil(scaledH / pdfH);
+        for (var i = 0; i < pages; i++) {
+          if (i > 0) pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 0, -(i * pdfH), pdfW, scaledH);
+        }
+      }
+      pdf.save('ESL-Timeline-' + dateStr + '.pdf');
+    }
+  }).catch(function(err) {
+    restore();
+    console.error('Export failed:', err);
+  });
+
+  function restore() {
+    scrollWrap.style.height   = origH;
+    scrollWrap.style.overflow = origOF;
+    document.body.style.overflow = origBOF;
+    if (tooltip) tooltip.style.display = '';
+    if (tourOverlay) tourOverlay.style.display = '';
+    btn.innerHTML = origText;
+    btn.disabled = false;
+  }
+}
 
 loadData();
 maybeAutoTour();
