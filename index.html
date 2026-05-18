@@ -611,6 +611,17 @@
     background: rgba(0, 0, 0, 0.05);
     color: #64748b;
   }
+  .footer-credit {
+    margin: 24px 0 16px; padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-muted);
+    text-align: left;
+  }
+  .footer-credit a {
+    color: var(--text-secondary); text-decoration: none;
+    border-bottom: 1px dotted rgba(148, 163, 184, 0.4);
+  }
+  .footer-credit a:hover { border-bottom-color: var(--text-muted); }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -2325,6 +2336,10 @@ function exportTimeline(format) {
 loadData();
 maybeAutoTour();
 </script>
+<div class="footer-credit">
+  Built and maintained by Abigail Kang ·
+  <a href="mailto:abigail.kang@ujet.cx">abigail.kang@ujet.cx</a>
+</div>
 </div>
 </body>
 </html>
