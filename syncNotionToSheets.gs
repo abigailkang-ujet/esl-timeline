@@ -567,8 +567,8 @@ function compareNotionVsSheets() {
  * Triggered automatically when the spreadsheet is opened.
  */
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('Notion Sync')
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Notion Sync')
     .addItem('Run Sync Now', 'runSyncWithAlert')
     .addItem('Compare Notion vs Sheets', 'compareNotionVsSheets')
     .addItem('Ensure Overall Anchors', 'ensureOverallAnchors')
@@ -577,6 +577,11 @@ function onOpen() {
     .addSeparator()
     .addItem('Set Up Daily Auto-Sync', 'setupDailyTrigger')
     .addItem('Remove Auto-Sync', 'removeDailyTrigger')
+    .addToUi();
+
+  ui.createMenu('Jira Push')
+    .addItem('Push Ideal → Jira (Dry Run)', 'pushIdealToJiraDryRun')
+    .addItem('Push Ideal → Jira', 'pushIdealToJira')
     .addToUi();
 }
 

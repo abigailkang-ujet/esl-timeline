@@ -21,7 +21,7 @@ const JIRA_DOMAIN      = 'ujetcs.atlassian.net';
 const JIRA_EMAIL       = 'abigail.kang@ujet.cx';
 const JIRA_FIELD_START     = 'customfield_11014';   // Jira Start Date custom field
 const JIRA_FIELD_END       = 'duedate';
-const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custom field (overrides Sheet's Ideal Delivery)
+const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custom field (write target for pushIdealToJira)
 const JIRA_CACHE_KEY       = 'esl-jira-live-v3';    // bump on parser/shape change
 const JIRA_CACHE_TTL       = 300;                    // 5 minutes
 
@@ -165,7 +165,6 @@ function buildTimelineData() {
     if (liveEntry.status) t.status = liveEntry.status;
     t.actualStart     = liveEntry.start || '';
     t.actualEnd       = liveEntry.end   || '';
-    if (liveEntry.committedDate) t.ideal = fmtDate(liveEntry.committedDate);  // Jira Committed Date overrides Sheet Ideal Delivery
     t.statusChangedAt = liveEntry.statusChangedAt || '';
     t.resolvedAt      = liveEntry.resolvedAt      || '';
     // Override Notion-synced blocking / blockedBy with Jira-derived. Relates is
@@ -219,7 +218,7 @@ function fetchJiraLive(jiraKeys) {
   var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search/jql';
   var bodyJson = JSON.stringify({
     jql: jql,
-    fields: ['status', JIRA_FIELD_START, JIRA_FIELD_END, JIRA_FIELD_COMMITTED,
+    fields: ['status', JIRA_FIELD_START, JIRA_FIELD_END,
              'statuscategorychangedate', 'resolutiondate', 'issuelinks'],
     maxResults: 200
   });
@@ -244,9 +243,8 @@ function fetchJiraLive(jiraKeys) {
       var f = i.fields || {};
       var entry = {
         status:          (f.status && f.status.name) || '',
-        start:           f[JIRA_FIELD_START]     || '',
-        end:             f[JIRA_FIELD_END]       || '',
-        committedDate:   f[JIRA_FIELD_COMMITTED] || '',
+        start:           f[JIRA_FIELD_START] || '',
+        end:             f[JIRA_FIELD_END]   || '',
         statusChangedAt: f.statuscategorychangedate || '',
         resolvedAt:      f.resolutiondate           || '',
         blocking:  [],   // Jira keys this task blocks (Blocks type, outward)
@@ -285,6 +283,133 @@ function fetchJiraLive(jiraKeys) {
 
   try { cache.put(JIRA_CACHE_KEY, JSON.stringify(byKey), JIRA_CACHE_TTL); } catch (e) { /* cache failure is non-fatal */ }
   return byKey;
+}
+
+// ============================================================
+// Push Sheet "Ideal Delivery" → Jira "Committed Date" (write back)
+// ============================================================
+// Direction: Realistic Scenario col "Ideal Delivery (due to SOW)" →
+//            Jira epic customfield_11900 (Committed Date)
+//
+// Why: the SOW ideal date lives in the Sheet (planning source of truth).
+// Jira's Committed Date field was historically not officially populated.
+// Now formalized — this function writes Sheet values back to Jira.
+//
+// Menu entry points:
+//   pushIdealToJiraDryRun() — preview only, no API writes
+//   pushIdealToJira()       — actual push, behind a confirm dialog
+//
+// Behavior:
+//   - Skips rows with no Jira URL (pre-Jira placeholder tasks)
+//   - Skips rows with no Ideal Delivery value
+//   - PUTs only the customfield_11900 field; other Jira fields untouched
+//   - Logs each result; alert on completion with counts + sample
+// ============================================================
+function pushIdealToJiraDryRun() { _pushIdealToJira_(true); }
+
+function pushIdealToJira() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    'Push Ideal → Jira Committed Date',
+    'This will OVERWRITE the Committed Date field on every Jira epic that has a value in the Sheet\'s "Ideal Delivery (due to SOW)" column.\n\nRun "Push Ideal → Jira (Dry Run)" first to preview.\n\nContinue with actual push?',
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+  _pushIdealToJira_(false);
+}
+
+function _pushIdealToJira_(dryRun) {
+  var ui = SpreadsheetApp.getUi();
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) { ui.alert('jiraToken not set in Script Properties'); return; }
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(REALISTIC_TAB);
+  if (!sheet) { ui.alert('Sheet not found: ' + REALISTIC_TAB); return; }
+
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var epicColIdx  = headers.indexOf('Epic (Do not edit)');
+  var idealColIdx = headers.indexOf('Ideal Delivery (due to SOW)');
+  if (epicColIdx < 0)  { ui.alert('Column not found: "Epic (Do not edit)"'); return; }
+  if (idealColIdx < 0) { ui.alert('Column not found: "Ideal Delivery (due to SOW)"'); return; }
+
+  ss.toast(
+    (dryRun ? 'Dry-run: previewing push' : 'Pushing to Jira') + '… this may take 10–30s.',
+    'Push Ideal → Jira', 60
+  );
+
+  var pushed = 0, skippedNoKey = 0, skippedNoDate = 0, failed = 0;
+  var preview = [];
+  var errors  = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var url   = String(data[i][epicColIdx] || '').trim();
+    var ideal = data[i][idealColIdx];
+    var key   = extractJiraKey(url);
+
+    if (!key)               { skippedNoKey++;  continue; }
+    var dateStr = fmtDate(ideal);
+    if (!dateStr)           { skippedNoDate++; continue; }
+
+    preview.push(key + ' → ' + dateStr);
+
+    if (dryRun) { pushed++; continue; }
+
+    try {
+      var resp = UrlFetchApp.fetch(
+        'https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + key,
+        {
+          method: 'put',
+          contentType: 'application/json',
+          payload: JSON.stringify({ fields: { customfield_11900: dateStr } }),
+          headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+          muteHttpExceptions: true,
+        }
+      );
+      var code = resp.getResponseCode();
+      if (code === 204) {
+        pushed++;
+        Logger.log('✓ ' + key + ' → ' + dateStr);
+      } else {
+        failed++;
+        var snip = resp.getContentText().slice(0, 200);
+        errors.push(key + ' HTTP ' + code + ' — ' + snip);
+        Logger.log('✗ ' + key + ' HTTP ' + code + ' — ' + snip);
+      }
+    } catch (e) {
+      failed++;
+      errors.push(key + ' threw: ' + e.message);
+      Logger.log('✗ ' + key + ' threw: ' + e.message);
+    }
+
+    // gentle pace: pause briefly every 10 puts to stay polite with Jira API
+    if (!dryRun && (pushed + failed) > 0 && (pushed + failed) % 10 === 0) Utilities.sleep(500);
+  }
+
+  // Invalidate live cache so the next render fetches fresh Jira data
+  if (!dryRun) {
+    try { CacheService.getScriptCache().remove(JIRA_CACHE_KEY); } catch (e) { /* non-fatal */ }
+  }
+
+  var title  = dryRun ? 'Push Ideal → Jira (Dry Run)' : 'Push Ideal → Jira';
+  var prefix = dryRun ? 'Would push: ' : 'Pushed: ';
+  var msg = prefix + pushed +
+    '\nSkipped (no Jira key): ' + skippedNoKey +
+    '\nSkipped (no Ideal date): ' + skippedNoDate +
+    '\nFailed: ' + failed;
+
+  if (preview.length) {
+    msg += '\n\n' + (dryRun ? 'Preview:' : 'Details:') + '\n' + preview.slice(0, 50).join('\n');
+    if (preview.length > 50) msg += '\n... (' + (preview.length - 50) + ' more)';
+  }
+  if (errors.length) {
+    msg += '\n\nErrors:\n' + errors.slice(0, 10).join('\n');
+  }
+
+  Logger.log(msg);
+  ui.alert(title, msg.slice(0, 4000), ui.ButtonSet.OK);
 }
 
 // ============================================================
