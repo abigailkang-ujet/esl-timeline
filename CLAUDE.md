@@ -72,7 +72,14 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 
 - **Spreadsheet ID**: `1s_AGnjgrSc_UtrVBRVHORlV_V9NpocKt15EpJaxmXpw`
 - **URL**: https://docs.google.com/spreadsheets/d/1s_AGnjgrSc_UtrVBRVHORlV_V9NpocKt15EpJaxmXpw/edit
-- **Key tabs**: Realistic Scenario - Tasks Details (S2), Notion_raw, Overall, Engineers
+- **Key tabs**:
+  - `Notion_raw` (sync target, jira_url PK at col J)
+  - `Overall` (derived, jira_url PK at col A; M cols cover manual + scenario effort)
+  - `Optimistic Scenario - Tasks Details (S1)` — per-task O start/end/effort
+  - `Realistic Scenario - Tasks Details (S2)` — canonical source for non-date fields
+  - `Pessimistic Scenario - Tasks Details (S3)` — per-task P start/end/effort
+  - `Engineers`
+  - All three scenario tabs share identical column layout (B=Epic URL, H=Start, I=End, K=Scenario Estimated Effort). webApp.gs reads them by COLUMN POSITION, not header name — header text drift between tabs was silently zeroing efforts and hiding bars (bug found 2026-05-19).
 
 ## Notion DB Info
 
@@ -88,13 +95,13 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 
 ---
 
-## File Status (as of 2026-04-27)
+## File Status (as of 2026-05-19)
 
 | File | Status | Description |
 |------|--------|-------------|
-| `webApp.gs` | ✅ Deployed | Team resolution, Notion join, error filtering |
-| `index.html` | ✅ Deployed (2026-04-27 evening) | Glass cards + pill hover + PRD PM-grouped collapsible cards + Risk H/M/L chips + Schedule strip + subtitle polish + Program Weeks Elapsed/Total + earlier (widget X/Y, schedule badge, PRD To Do, status pill filter, shortName, task wrap, search, Gantt bar click, tooltip size/hover split) |
-| `syncNotionToSheets.gs` | ✅ Refactored (787 lines, was 933) | Clear+dump strategy, jira_url as PK, `ensureOverallAnchors()` auto-append |
+| `webApp.gs` | ✅ Deployed | 3-scenario read (Optimistic/Realistic/Pessimist sibling tabs, position-based column read), Jira live sync (status/start/end/issuelinks), `pushIdealToJira()` write-back, Notion join |
+| `index.html` | ✅ Deployed | Scenario multi-select toggle (stacked 4-lane Gantt + letter badges + hover labels), default sort = plan start within team, glass cards, pill hover, PRD PM-grouped cards, Risk H/M/L chips, Schedule strip, Program Weeks Elapsed/Total |
+| `syncNotionToSheets.gs` | ✅ Refactored (787 lines) | Clear+dump strategy, jira_url as PK, `ensureOverallAnchors()` auto-append, "Jira Push" menu (Sheet Ideal → Jira Committed Date) |
 | `timeline.html` | Backup | Local standalone version |
 | `syncToNotion.gs` | Deferred | Reverse sync (not needed) |
 
@@ -233,6 +240,25 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 - **PM**: `<select>` dropdown (not buttons)
 - **Status**: `activeStatus` variable — set by clicking Status strip pills
 - **Schedule (2026-04-27)**: `activeSchedule` variable — set by clicking Schedule strip pills
+
+### Scenario Toggle (2026-05-19) — multi-select
+Located in ctrlRow2 (second control row), next to Search.
+
+- **State**: `selectedScenarios` (array; at least one always selected). Persists to `localStorage['esl-scenarios']` as JSON array; migrates legacy `'esl-scenario'` string key on first load.
+- **Primary scenario** (drives Schedule chip, Past Ideal Date, at-risk hatching, t.start/t.end): `primaryScenario()` returns Realistic if it's selected, else the first selected.
+- **Single selected** → existing single-bar rendering (plan/actual/overrun split, hatching, all rich behavior).
+- **2+ selected** → stacked 4-lane Gantt:
+  - Optimistic (top, opacity 0.6, team color) — letter badge `O`
+  - Realistic (middle, opacity 0.95, team color) — letter badge `R`
+  - Pessimist (bottom of plan trio, opacity 0.6, team color) — letter badge `P`
+  - Actual (lowest lane, slate `#475569` / light `#64748b`, team-color-distinct) — letter badge `A` (amber bg)
+  - Each bar expands to 13px on hover with inline `<span class="bar-label">` showing scenario name + date range.
+  - Letter badges have z-index 11 so they remain visible above any hovered bar.
+- **Data flow**: each task carries `t.optimistic / t.realistic / t.pessimist` objects (`{start, end, effort}`) from the server. `applyScenarios()` mutates `t.start / t.end / t.scenarioEffort` to the primary scenario at toggle time.
+- **Resilience**: scenario tabs read by COLUMN POSITION (not header name). `resolveScenario_()` falls back to Realistic's start and recomputes end from `start + effort*7` when a scenario tab has empty H/I.
+
+### Default sort (2026-05-19)
+`activeSort` initial value changed from `'default'` (sheet row order) to `'start'` — tasks within each team sort by plan start ASC on first load. flatView still defaults to false so teams stay grouped.
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
 - **Show Actual (2026-04-28; scope narrowed 2026-05-07)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.actualStart` / `t.actualEnd` (Jira REST direct, Notion-synced fallback). **Toggle controls the columns only — the Gantt bar's dual-bar treatment now renders independently whenever effective actual data exists** (see Gantt section below).
@@ -398,13 +424,16 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **Deploy**: git commit ≠ live. After merging to `main`, manually paste changed files into the Apps Script editor and use **Deploy → Manage deployments → Edit → New version** to preserve the URL.
 - **No test framework**. Verification is static (grep/read) + post-deploy visual checks.
 
-## Current Status (2026-04-27)
+## Current Status (2026-05-19)
 
 - 7 teams (CALL, SDK, CHAT, API, Email, AGX, DATA), ADX removed
-- **Refactor complete** — Sheets schema fully on jira_url PK; `syncNotionToSheets.gs` simplified to clear+dump (787 lines, was 933)
-- Notion_raw: ~37 data rows, header at row 1, jira_url at col J, Notion_ID at col T
-- Known: Chat Orchestration has 2 Notion pages with same JIRA URL → both rows now appear in Notion_raw (Overall's XLOOKUP picks first match)
-- **Daily auto-sync trigger active** — runs `syncNotionToSheets` (clear+dump + ensureOverallAnchors) every day at 7AM
-- **index.html deployed (2026-04-27 evening)** — UI polish round: glass cards (backdrop-filter blur), Status/Schedule pill hover affordance, PRD Needed regrouped into collapsible per-PM cards (numbered items, Jira-clickable keys), Risk column rendered as H/M/L color chips that expand to full word on hover, header subtitle shrunk + "& Notion" added. Earlier today: Schedule strip, Program Weeks Elapsed/Total, widget X/Y format.
+- **jira_url PK refactor complete** — Sheets schema fully on jira_url PK; `syncNotionToSheets.gs` simplified to clear+dump (787 lines)
+- Notion_raw: ~37 data rows, jira_url at col J, Notion_ID at col T
+- **Daily auto-sync trigger active** — runs `syncNotionToSheets` every day at 7AM
+- **3-scenario data plumbing** (2026-05-19): server reads Optimistic / Realistic / Pessimistic tabs by column position (B=Epic URL, H=Start, I=End, K=Effort). Each task exposes `t.optimistic / t.realistic / t.pessimist` with `{start, end, effort}`. Realistic stays canonical for non-date fields (Lead, PM, Headcount, etc.) and for the initial `t.start / t.end`.
+- **Multi-scenario Gantt** (2026-05-19): toggle in second control row supports multi-select. Single-select keeps the rich plan/actual rendering; 2+ selected renders stacked 4-lane bars (Optimistic / Realistic / Pessimist / Actual) with letter badges (O/R/P/A) at left and hover-revealed inline labels. Actual uses a distinct slate color so it doesn't blend with team-coloured plan bars.
+- **Jira live override** (existing, expanded 2026-05-07): webApp.gs hits Jira REST at render time (5-min cache) to refresh status / actualStart / actualEnd / statusChangedAt / resolvedAt / issuelinks (Blocks + Relates). Token in Script Properties as `jiraToken`.
+- **Jira write-back** (2026-05-18): "Jira Push" menu pushes Sheet's `Ideal Delivery (due to SOW)` value into Jira's `customfield_11900` (Committed Date) for each task. Dry-run + confirm dialog gating.
+- **Default sort** (2026-05-19): tasks sort by plan start ASC within each team on first load.
 - **webApp.gs deployed (2026-04-27)** — local + main + live now in sync
 - syncNotionToSheets.gs: deployed and validated — 3 tests passed (manual anchor run, full sync, anchor recreation), Notion_raw row reorder doesn't break Overall
