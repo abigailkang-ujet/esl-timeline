@@ -16,7 +16,7 @@
 
 const REALISTIC_TAB  = 'Realistic Scenario - Tasks Details (S2)';
 const OPTIMISTIC_TAB = 'Optimistic Scenario - Tasks Details (S1)';
-const PESSIMIST_TAB  = 'Pessimist Scenario - Tasks Details (S3)';
+const PESSIMIST_TAB  = 'Pessimistic Scenario - Tasks Details (S3)';
 
 // ── Jira live sync (status / start / end) — see spec 2026-05-06 ──
 const JIRA_DOMAIN      = 'ujetcs.atlassian.net';
@@ -109,13 +109,20 @@ function buildTimelineData() {
     // the initial render (t.start / t.end fields below). Optimistic and
     // Pessimist come from sibling Sheets tabs with identical column layout
     // — the frontend toggles among the three.
+    //
+    // Fallback rules (so O/P bars show even if those tabs aren't fully
+    // populated):
+    //   - start: scenario's own start → else Realistic's start
+    //   - end:   scenario's own end   → else compute from (start + effort*7)
+    //   - effort: must come from the scenario tab (this is what makes the
+    //            scenario different in the first place)
     const realistic = {
       start:  fmtDate(row['Start Date']),
       end:    fmtDate(row['End Date (Do not edit)']),
       effort: num(row['Scenario Estimated Effort (dev weeks)']),
     };
-    const optimistic = optimisticByUrl[epicUrl] || { start: '', end: '', effort: 0 };
-    const pessimist  = pessimistByUrl[epicUrl]  || { start: '', end: '', effort: 0 };
+    const optimistic = resolveScenario_(optimisticByUrl[epicUrl], realistic);
+    const pessimist  = resolveScenario_(pessimistByUrl[epicUrl],  realistic);
 
     tasks.push({
       // ── From Realistic Scenario tab (team leads enter these) ──
@@ -442,6 +449,13 @@ function _pushIdealToJira_(dryRun) {
 // all the non-date fields (Lead, PM, Headcount, etc.) come from the
 // Realistic tab as the canonical source.
 function buildScenarioIndex(ss, tabName) {
+  // Resilient: if the scenario tab is missing or renamed, return {} so the
+  // page still renders. The frontend's applyScenario() falls back to
+  // Realistic for any task whose scenario object is empty.
+  if (!ss.getSheetByName(tabName)) {
+    Logger.log('[scenario] tab not found: "' + tabName + '" — skipping');
+    return {};
+  }
   var rows = readSheet(ss, tabName);
   var byUrl = {};
   rows.forEach(function(row) {
@@ -454,6 +468,27 @@ function buildScenarioIndex(ss, tabName) {
     };
   });
   return byUrl;
+}
+
+// Compute end date string (yyyy-MM-dd) from a start date string + effort weeks.
+function computeEndFromEffort_(startStr, effortWeeks) {
+  if (!startStr || !effortWeeks) return '';
+  // startStr is yyyy-MM-dd; construct as midnight local to avoid TZ drift.
+  var d = new Date(startStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + Math.round(effortWeeks * 7));
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+// Merge a scenario entry from its sibling tab with the Realistic fallback so
+// the Gantt bar still renders even when the scenario tab's H / I columns are
+// blank. Effort itself is scenario-specific — no Realistic fallback for it.
+function resolveScenario_(rawEntry, realistic) {
+  var raw    = rawEntry || {};
+  var start  = raw.start || realistic.start;
+  var effort = raw.effort != null ? raw.effort : 0;
+  var end    = raw.end || computeEndFromEffort_(start, effort);
+  return { start: start, end: end, effort: effort };
 }
 
 // ============================================================

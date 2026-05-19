@@ -664,11 +664,6 @@
     <p class="subtitle" style="margin-bottom:0;font-size:12px;opacity:0.7">Gantt chart view &middot; data live from Google Sheets &amp; Notion</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    <div class="scenario-toggle" id="scenario-toggle" title="Switch which scenario drives the Gantt dates">
-      <button data-scenario="optimistic">Optimistic</button>
-      <button data-scenario="realistic">Realistic</button>
-      <button data-scenario="pessimist">Pessimist</button>
-    </div>
     <div class="export-wrap" id="export-wrap">
       <button class="theme-btn" id="export-btn" onclick="toggleExportMenu()">Export &#9662;</button>
       <div class="export-menu" id="export-menu">
@@ -772,11 +767,8 @@ function loadData() {
     const json = <?!= timelineData ?>;
     ALL_TASKS = json.tasks || [];
     applyScenario(activeScenario);
-    // Set initial active button + wire click handlers
-    document.querySelectorAll('#scenario-toggle button').forEach(function(b) {
-      b.classList.toggle('active', b.dataset.scenario === activeScenario);
-      b.addEventListener('click', function() { setScenario(b.dataset.scenario); });
-    });
+    // Scenario toggle is built inside renderControls() (ctrlRow2) and wires
+    // its own click handlers on creation — nothing to wire here.
     renderAll(json.updatedAt);
   } catch (e) {
     document.getElementById('root').innerHTML =
@@ -894,14 +886,18 @@ function renderAll(updatedAt) {
     });
   }
 
-  // ── Search box ──
-  var searchSep = document.createElement('span');
-  searchSep.style.cssText = 'display:inline-block;width:1px;height:16px;background:var(--border-mid);margin:0 6px;align-self:center;';
-  ctrlRow.appendChild(searchSep);
+  root.appendChild(ctrlRow);
+
+  // ── Second control row: Search + Scenario toggle ──
+  var ctrlRow2 = document.createElement('div');
+  ctrlRow2.className = 'filter-group';
+  ctrlRow2.style.marginBottom = '14px';
+
+  // Search box
   var searchLbl = document.createElement('span');
   searchLbl.className = 'filter-label';
   searchLbl.textContent = 'Search';
-  ctrlRow.appendChild(searchLbl);
+  ctrlRow2.appendChild(searchLbl);
   var searchInput = document.createElement('input');
   searchInput.type = 'text';
   searchInput.placeholder = 'task name or key…';
@@ -909,9 +905,33 @@ function renderAll(updatedAt) {
   searchInput.style.cssText = 'padding:4px 8px;border-radius:6px;border:1px solid var(--border-mid);' +
     'background:var(--bg-card);color:var(--text-primary);font-size:13px;font-family:inherit;outline:none;width:160px;';
   searchInput.oninput = function() { searchQuery = searchInput.value; renderTimeline(); };
-  ctrlRow.appendChild(searchInput);
+  ctrlRow2.appendChild(searchInput);
 
-  root.appendChild(ctrlRow);
+  // Separator
+  var scenSep = document.createElement('span');
+  scenSep.style.cssText = 'display:inline-block;width:1px;height:16px;background:var(--border-mid);margin:0 10px;align-self:center;';
+  ctrlRow2.appendChild(scenSep);
+
+  // Scenario toggle (moved here from header)
+  var scenLbl = document.createElement('span');
+  scenLbl.className = 'filter-label';
+  scenLbl.textContent = 'Scenario';
+  ctrlRow2.appendChild(scenLbl);
+  var scenWrap = document.createElement('div');
+  scenWrap.className = 'scenario-toggle';
+  scenWrap.id = 'scenario-toggle';
+  scenWrap.title = 'Switch which scenario drives the Gantt dates';
+  [{v:'optimistic',l:'Optimistic'},{v:'realistic',l:'Realistic'},{v:'pessimist',l:'Pessimist'}].forEach(function(opt) {
+    var b = document.createElement('button');
+    b.dataset.scenario = opt.v;
+    b.textContent = opt.l;
+    if (opt.v === activeScenario) b.classList.add('active');
+    b.addEventListener('click', function() { setScenario(opt.v); });
+    scenWrap.appendChild(b);
+  });
+  ctrlRow2.appendChild(scenWrap);
+
+  root.appendChild(ctrlRow2);
 
   const wrap = document.createElement('div');
   wrap.id = 'timeline-wrap';
