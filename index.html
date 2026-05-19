@@ -416,21 +416,38 @@
   .task-row:hover .gantt-actual,
   .task-row:hover .gantt-overrun { opacity: 1; }
 
-  /* Multi-scenario stacked bars (when 2+ scenarios selected).
-     Four fixed vertical slots in the 38px row so each lane stays in a
-     predictable position regardless of which scenarios are selected.
-     Actual is always shown when present, parallel to the scenario lanes. */
-  .gantt-multi {
-    position: absolute; border-radius: 4px;
-    min-width: 3px; z-index: 2;
+  /* Multi-scenario envelope bar (when 2+ scenarios selected).
+     The selected scenarios form a single compound bar at the top of the
+     row, divided into segments by each scenario's end date — the further
+     right you go, the lighter the shade (fewer scenarios still active).
+     Actual is rendered as a separate bar below in its own lane. */
+  .gantt-zone {
+    position: absolute;
+    top: 6px; height: 11px;
     background-color: var(--c);
-    transition: opacity 0.12s ease, height 0.12s ease;
+    z-index: 2;
+    transition: filter 0.12s ease;
   }
-  .task-row:hover .gantt-multi { opacity: 1; }
-  .gantt-multi.scen-optimistic { top: 4px;  height: 5px; opacity: 0.6; }
-  .gantt-multi.scen-realistic  { top: 11px; height: 5px; opacity: 0.95; }
-  .gantt-multi.scen-pessimist  { top: 18px; height: 5px; opacity: 0.6; }
-  .gantt-multi.scen-actual     { top: 26px; height: 7px; opacity: 1; }
+  .gantt-zone.first { border-top-left-radius: 5px;  border-bottom-left-radius: 5px;  }
+  .gantt-zone.last  { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
+  .gantt-zone.zone-1 { opacity: 1.00; }
+  .gantt-zone.zone-2 { opacity: 0.55; }
+  .gantt-zone.zone-3 { opacity: 0.30; }
+  .gantt-zone:hover { filter: brightness(1.18); z-index: 5; }
+
+  .gantt-actual-multi {
+    position: absolute;
+    top: 22px; height: 10px;
+    border-radius: 5px;
+    background-color: var(--c);
+    opacity: 0.95;
+    /* Subtle inset outline differentiates the Actual lane from the zone
+       bar above — same team color but reads as "this actually happened". */
+    box-shadow: inset 0 0 0 1.5px rgba(0,0,0,0.18);
+    z-index: 3;
+    transition: filter 0.12s ease;
+  }
+  .gantt-actual-multi:hover { filter: brightness(1.12); z-index: 5; }
 
   /* Bar hover — segment grows in height and reveals date label inside.
      Mirrors the status-dot expand pattern: same colour, just thicker, with
@@ -1470,36 +1487,58 @@ function buildTimeline(tasks, teamFilter) {
     var colorVar = '--c:' + color + ';';
 
     if (selectedScenarios.length > 1) {
-      // Multi-select: stacked sub-bars in fixed vertical lanes.
-      //   - One bar per selected scenario (Optimistic top → Pessimist bottom)
-      //   - Actual bar in its own bottom lane (always shown when present)
-      // Plan/actual split + overrun hatching are skipped here — those imply
-      // a single canonical plan, which doesn't apply when comparing.
+      // Multi-select: single envelope bar split into zones by scenario end
+      // date (darker → lighter as fewer scenarios still reach that point).
+      // Actual is a separate bar in its own lane below — visually distinct
+      // so "what actually happened" reads at a glance.
       var multiClick = t.epicUrl ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')"' : '';
       var multiCur   = t.epicUrl ? 'cursor:pointer;' : '';
+
+      var entries = [];
       ['optimistic', 'realistic', 'pessimist'].forEach(function(scenario) {
         if (selectedScenarios.indexOf(scenario) < 0) return;
         var sc = t[scenario];
         if (!sc || !sc.start || !sc.end) return;
-        var sd2 = parseDate(sc.start);
-        var ed2 = parseDate(sc.end);
-        if (!sd2 || !ed2) return;
-        var l  = dayToPx(dayOffset(sd2));
-        var w  = Math.max(3, dayToPx(dayOffset(ed2)) - l);
-        var sName = scenario.charAt(0).toUpperCase() + scenario.slice(1);
-        var lbl   = sName + ': ' + fmtShort(sd2) + ' → ' + fmtShort(ed2);
-        ganttInner += '<div class="gantt-multi scen-' + scenario + '" ' +
-          'style="left:' + l + 'px;width:' + w + 'px;' + colorVar + multiCur + '" ' +
-          'title="' + lbl + '"' + multiClick + '></div>';
+        var ss_ = parseDate(sc.start);
+        var es_ = parseDate(sc.end);
+        if (!ss_ || !es_) return;
+        entries.push({ name: scenario, start: ss_, end: es_ });
       });
-      // Always-on Actual lane (only if Jira gave us real start/end)
+
+      if (entries.length > 0) {
+        entries.sort(function(a, b) { return a.end - b.end; });
+        var minStart = entries.reduce(function(m, e) {
+          return (!m || e.start < m) ? e.start : m;
+        }, null);
+        var prevX = dayToPx(dayOffset(minStart));
+        entries.forEach(function(e, idx) {
+          var endX = dayToPx(dayOffset(e.end));
+          if (endX <= prevX) return;
+          var width = endX - prevX;
+          var capName = e.name.charAt(0).toUpperCase() + e.name.slice(1);
+          // Tooltip names the right-edge scenario AND lists which scenarios
+          // are still active in this zone (i.e., haven't ended yet).
+          var stillIn = entries.slice(idx).map(function(z) {
+            return z.name.charAt(0).toUpperCase() + z.name.slice(1);
+          }).join(', ');
+          var lbl = capName + ' end: ' + fmtShort(e.end) + '  |  within: ' + stillIn;
+          var klass = 'gantt-zone zone-' + (idx + 1)
+            + (idx === 0 ? ' first' : '')
+            + (idx === entries.length - 1 ? ' last' : '');
+          ganttInner += '<div class="' + klass + '" ' +
+            'style="left:' + prevX + 'px;width:' + width + 'px;' + colorVar + multiCur + '" ' +
+            'title="' + lbl + '"' + multiClick + '></div>';
+          prevX = endX;
+        });
+      }
+
       if (hasActual) {
         var aL = dayToPx(dayOffset(actSd_));
         var aW = Math.max(3, dayToPx(dayOffset(actEd_)) - aL);
         var isOngoing2 = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
         var actEnd2    = isOngoing2 ? 'ongoing' : fmtShort(actEd_);
         var aLbl       = 'Actual: ' + fmtShort(actSd_) + ' → ' + actEnd2;
-        ganttInner += '<div class="gantt-multi scen-actual" ' +
+        ganttInner += '<div class="gantt-actual-multi" ' +
           'style="left:' + aL + 'px;width:' + aW + 'px;' + colorVar + multiCur + '" ' +
           'title="' + aLbl + '"' + multiClick + '></div>';
       }
