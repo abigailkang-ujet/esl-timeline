@@ -513,6 +513,35 @@
   .theme-btn:hover { border-color: rgba(255,255,255,0.22); color: var(--text-primary); }
   .theme-btn:disabled { opacity: 0.5; cursor: wait; }
 
+  /* ── Scenario toggle (Optimistic / Realistic / Pessimist) ── */
+  .scenario-toggle {
+    display: inline-flex; padding: 2px; gap: 1px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .scenario-toggle button {
+    border: none; background: transparent;
+    color: var(--text-muted); font-size: 11px; font-weight: 600;
+    padding: 5px 11px; cursor: pointer; border-radius: 6px;
+    font-family: inherit; letter-spacing: 0.01em;
+    transition: background 0.15s, color 0.15s;
+  }
+  .scenario-toggle button:hover { color: var(--text-primary); }
+  .scenario-toggle button.active {
+    background: var(--bg-elevated); color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+  body.light-mode .scenario-toggle {
+    background: rgba(255, 255, 255, 0.55);
+    border-color: rgba(0, 0, 0, 0.06);
+  }
+  body.light-mode .scenario-toggle button.active {
+    background: white; color: #1e293b;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
   /* ── Export dropdown ── */
   .export-wrap { position: relative; display: inline-block; }
   .export-menu {
@@ -635,6 +664,11 @@
     <p class="subtitle" style="margin-bottom:0;font-size:12px;opacity:0.7">Gantt chart view &middot; data live from Google Sheets &amp; Notion</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
+    <div class="scenario-toggle" id="scenario-toggle" title="Switch which scenario drives the Gantt dates">
+      <button data-scenario="optimistic">Optimistic</button>
+      <button data-scenario="realistic">Realistic</button>
+      <button data-scenario="pessimist">Pessimist</button>
+    </div>
     <div class="export-wrap" id="export-wrap">
       <button class="theme-btn" id="export-btn" onclick="toggleExportMenu()">Export &#9662;</button>
       <div class="export-menu" id="export-menu">
@@ -705,11 +739,44 @@ let showActual    = false; // toggled via "Show Actual" button; persisted in loc
 let activeSort    = 'default'; // 'default' | 'start' | 'end' | 'ideal'
 let flatView      = false;
 let lastUpdatedAt = '';
+let activeScenario = (function() {
+  try { return localStorage.getItem('esl-scenario') || 'realistic'; }
+  catch (e) { return 'realistic'; }
+})();
+
+// Mutate every task's start/end/scenarioEffort to the selected scenario's values.
+// Each task carries t.optimistic / t.realistic / t.pessimist objects from the server.
+// Tasks without that scenario's data (missing row in sibling tab) keep blank → no Gantt bar.
+function applyScenario(scenario) {
+  ALL_TASKS.forEach(function(t) {
+    const s = t[scenario] || t.realistic || {};
+    t.start          = s.start  || '';
+    t.end            = s.end    || '';
+    t.scenarioEffort = s.effort || 0;
+  });
+}
+
+function setScenario(scenario) {
+  if (scenario === activeScenario) return;
+  activeScenario = scenario;
+  try { localStorage.setItem('esl-scenario', scenario); } catch (e) {}
+  applyScenario(scenario);
+  document.querySelectorAll('#scenario-toggle button').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.scenario === scenario);
+  });
+  renderAll(null);
+}
 
 function loadData() {
   try {
     const json = <?!= timelineData ?>;
     ALL_TASKS = json.tasks || [];
+    applyScenario(activeScenario);
+    // Set initial active button + wire click handlers
+    document.querySelectorAll('#scenario-toggle button').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.scenario === activeScenario);
+      b.addEventListener('click', function() { setScenario(b.dataset.scenario); });
+    });
     renderAll(json.updatedAt);
   } catch (e) {
     document.getElementById('root').innerHTML =

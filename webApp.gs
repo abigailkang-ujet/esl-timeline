@@ -14,7 +14,9 @@
  * ============================================================
  */
 
-const REALISTIC_TAB = 'Realistic Scenario - Tasks Details (S2)';
+const REALISTIC_TAB  = 'Realistic Scenario - Tasks Details (S2)';
+const OPTIMISTIC_TAB = 'Optimistic Scenario - Tasks Details (S1)';
+const PESSIMIST_TAB  = 'Pessimist Scenario - Tasks Details (S3)';
 
 // ── Jira live sync (status / start / end) — see spec 2026-05-06 ──
 const JIRA_DOMAIN      = 'ujetcs.atlassian.net';
@@ -87,6 +89,8 @@ function buildTimelineData() {
 
   const rsRows                  = readSheet(ss, REALISTIC_TAB);
   const { byUrl, byName }       = buildNotionIndex(ss);
+  const optimisticByUrl         = buildScenarioIndex(ss, OPTIMISTIC_TAB);
+  const pessimistByUrl          = buildScenarioIndex(ss, PESSIMIST_TAB);
 
   const tasks = [];
   rsRows.forEach(row => {
@@ -101,6 +105,18 @@ function buildTimelineData() {
     // Join: JIRA URL 우선, 없으면 task 이름(Requirement)으로 fallback
     const n          = (hasUrl && byUrl[epicUrl]) || byName[task] || {};
 
+    // Per-scenario start/end/effort. Realistic is the canonical source for
+    // the initial render (t.start / t.end fields below). Optimistic and
+    // Pessimist come from sibling Sheets tabs with identical column layout
+    // — the frontend toggles among the three.
+    const realistic = {
+      start:  fmtDate(row['Start Date']),
+      end:    fmtDate(row['End Date (Do not edit)']),
+      effort: num(row['Scenario Estimated Effort (dev weeks)']),
+    };
+    const optimistic = optimisticByUrl[epicUrl] || { start: '', end: '', effort: 0 };
+    const pessimist  = pessimistByUrl[epicUrl]  || { start: '', end: '', effort: 0 };
+
     tasks.push({
       // ── From Realistic Scenario tab (team leads enter these) ──
       epic:           epicKey,
@@ -110,10 +126,14 @@ function buildTimelineData() {
       allocation:     str(row['Allocation']),
       headcount:      str(row['Headcount']),
       risk:           str(row['Risk Factor']),
-      start:          fmtDate(row['Start Date']),
-      end:            fmtDate(row['End Date (Do not edit)']),
+      start:          realistic.start,
+      end:            realistic.end,
       effort:         num(row['Planned Effort  (#weeks)']),
-      scenarioEffort: num(row['Scenario Estimated Effort (dev weeks)']),
+      scenarioEffort: realistic.effort,
+      // Per-scenario { start, end, effort } — frontend toggles among these
+      optimistic:     optimistic,
+      realistic:      realistic,
+      pessimist:      pessimist,
       ideal:          fmtDate(row['Ideal Delivery (due to SOW)']),
       note:           str(row['Note']),
       release:        str(row['Release']),
@@ -410,6 +430,30 @@ function _pushIdealToJira_(dryRun) {
 
   Logger.log(msg);
   ui.alert(title, msg.slice(0, 4000), ui.ButtonSet.OK);
+}
+
+// ============================================================
+// Build scenario-tab index (Optimistic / Pessimist)
+// ============================================================
+// Returns { [jiraUrl]: { start, end, effort } } for the given scenario tab.
+// Each scenario tab has the same column layout as Realistic Scenario, but K
+// (Scenario Estimated Effort) holds the scenario-specific weeks. Start Date
+// may also differ across scenarios. We only carry start/end/effort because
+// all the non-date fields (Lead, PM, Headcount, etc.) come from the
+// Realistic tab as the canonical source.
+function buildScenarioIndex(ss, tabName) {
+  var rows = readSheet(ss, tabName);
+  var byUrl = {};
+  rows.forEach(function(row) {
+    var url = String(row['Epic (Do not edit)'] || '').trim();
+    if (!url.startsWith('http')) return;
+    byUrl[url] = {
+      start:  fmtDate(row['Start Date']),
+      end:    fmtDate(row['End Date (Do not edit)']),
+      effort: num(row['Scenario Estimated Effort (dev weeks)']),
+    };
+  });
+  return byUrl;
 }
 
 // ============================================================
