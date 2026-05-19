@@ -449,24 +449,36 @@ function _pushIdealToJira_(dryRun) {
 // all the non-date fields (Lead, PM, Headcount, etc.) come from the
 // Realistic tab as the canonical source.
 function buildScenarioIndex(ss, tabName) {
-  // Resilient: if the scenario tab is missing or renamed, return {} so the
-  // page still renders. The frontend's applyScenario() falls back to
-  // Realistic for any task whose scenario object is empty.
-  if (!ss.getSheetByName(tabName)) {
+  // Read scenario tab by COLUMN POSITION rather than header name. The three
+  // scenario tabs share an identical column layout (B=Epic URL, H=Start,
+  // I=End, K=Effort), but small header text drift between tabs (extra space,
+  // case, missing parenthetical) would silently turn header-based lookups
+  // into 0 / '' and the Gantt bar would vanish — exactly the bug we hit.
+  // Position-based access is immune to those drifts.
+  var sheet = ss.getSheetByName(tabName);
+  if (!sheet) {
     Logger.log('[scenario] tab not found: "' + tabName + '" — skipping');
     return {};
   }
-  var rows = readSheet(ss, tabName);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return {};
+  // Read cols A..K (11 columns) in one batch. Indexes:
+  //   1 = B (Epic URL), 7 = H (Start Date), 8 = I (End Date), 10 = K (Effort)
+  var values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
   var byUrl = {};
-  rows.forEach(function(row) {
-    var url = String(row['Epic (Do not edit)'] || '').trim();
+  var nonZero = 0;
+  values.forEach(function(row) {
+    var url = String(row[1] || '').trim();
     if (!url.startsWith('http')) return;
+    var effort = num(row[10]);
+    if (effort > 0) nonZero++;
     byUrl[url] = {
-      start:  fmtDate(row['Start Date']),
-      end:    fmtDate(row['End Date (Do not edit)']),
-      effort: num(row['Scenario Estimated Effort (dev weeks)']),
+      start:  fmtDate(row[7]),
+      end:    fmtDate(row[8]),
+      effort: effort,
     };
   });
+  Logger.log('[scenario] "' + tabName + '": ' + Object.keys(byUrl).length + ' rows, ' + nonZero + ' with effort > 0');
   return byUrl;
 }
 
