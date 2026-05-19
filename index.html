@@ -416,38 +416,51 @@
   .task-row:hover .gantt-actual,
   .task-row:hover .gantt-overrun { opacity: 1; }
 
-  /* Multi-scenario envelope bar (when 2+ scenarios selected).
-     The selected scenarios form a single compound bar at the top of the
-     row, divided into segments by each scenario's end date — the further
-     right you go, the lighter the shade (fewer scenarios still active).
-     Actual is rendered as a separate bar below in its own lane. */
-  .gantt-zone {
-    position: absolute;
-    top: 6px; height: 11px;
+  /* Multi-scenario stacked lanes (when 2+ scenarios selected). Each bar
+     grows on hover to reveal an inline label (same pattern as single
+     mode). Actual lane uses a distinct slate color so it never blends
+     into the team-coloured scenario bars. Letter badges (O/R/P/A) sit
+     at the left edge of each bar for always-visible identification. */
+  .gantt-multi {
+    position: absolute; border-radius: 4px;
+    min-width: 3px; z-index: 2;
     background-color: var(--c);
-    z-index: 2;
-    transition: filter 0.12s ease;
+    display: flex; align-items: center; justify-content: flex-start;
+    white-space: nowrap;
+    transition: height 0.12s ease, filter 0.12s ease;
   }
-  .gantt-zone.first { border-top-left-radius: 5px;  border-bottom-left-radius: 5px;  }
-  .gantt-zone.last  { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
-  .gantt-zone.zone-1 { opacity: 1.00; }
-  .gantt-zone.zone-2 { opacity: 0.55; }
-  .gantt-zone.zone-3 { opacity: 0.30; }
-  .gantt-zone:hover { filter: brightness(1.18); z-index: 5; }
+  .gantt-multi:hover { height: 13px; z-index: 10; filter: brightness(1.12); }
+  .gantt-multi.scen-optimistic { top: 4px;  height: 5px; opacity: 0.6; }
+  .gantt-multi.scen-realistic  { top: 11px; height: 5px; opacity: 0.95; }
+  .gantt-multi.scen-pessimist  { top: 18px; height: 5px; opacity: 0.6; }
+  .gantt-multi.scen-actual {
+    top: 26px; height: 7px; opacity: 1;
+    background-color: #475569;  /* slate-600 — distinct from any team color */
+  }
+  body.light-mode .gantt-multi.scen-actual { background-color: #64748b; }
 
-  .gantt-actual-multi {
-    position: absolute;
-    top: 22px; height: 10px;
-    border-radius: 5px;
-    background-color: var(--c);
-    opacity: 0.95;
-    /* Subtle inset outline differentiates the Actual lane from the zone
-       bar above — same team color but reads as "this actually happened". */
-    box-shadow: inset 0 0 0 1.5px rgba(0,0,0,0.18);
-    z-index: 3;
-    transition: filter 0.12s ease;
+  /* Hover-visible inline labels (scenario name + date range) */
+  .gantt-multi > .bar-label { padding: 1px 5px; background-color: var(--c); }
+  .gantt-multi.scen-actual > .bar-label { background-color: #475569; }
+  body.light-mode .gantt-multi.scen-actual > .bar-label { background-color: #64748b; }
+  .gantt-multi:hover .bar-label { opacity: 1; }
+
+  /* Always-on letter badges at the left of each bar */
+  .gantt-lane-badge {
+    position: absolute; z-index: 11;
+    font-size: 9px; font-weight: 800; line-height: 1;
+    padding: 1px 4px; border-radius: 3px;
+    background: rgba(15,23,42,0.85); color: #fff;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+    transform: translateX(-100%);
+    margin-left: -3px;
   }
-  .gantt-actual-multi:hover { filter: brightness(1.12); z-index: 5; }
+  .gantt-lane-badge.lane-optimistic { top: 2px;  }
+  .gantt-lane-badge.lane-realistic  { top: 9px;  }
+  .gantt-lane-badge.lane-pessimist  { top: 16px; }
+  .gantt-lane-badge.lane-actual     { top: 24px; background: #f59e0b; }
+  body.light-mode .gantt-lane-badge { background: rgba(15,23,42,0.8); }
 
   /* Bar hover — segment grows in height and reveals date label inside.
      Mirrors the status-dot expand pattern: same colour, just thicker, with
@@ -764,7 +777,7 @@ let activeSchedule = 'ALL';
 let searchQuery   = '';
 let showDeps      = false;
 let showActual    = false; // toggled via "Show Actual" button; persisted in localStorage
-let activeSort    = 'default'; // 'default' | 'start' | 'end' | 'ideal'
+let activeSort    = 'start'; // 'default' | 'start' | 'end' | 'ideal' — default sorts tasks by plan start within each team
 let flatView      = false;
 let lastUpdatedAt = '';
 // Multi-select scenario selection. At least 1 must always be selected.
@@ -1487,50 +1500,32 @@ function buildTimeline(tasks, teamFilter) {
     var colorVar = '--c:' + color + ';';
 
     if (selectedScenarios.length > 1) {
-      // Multi-select: single envelope bar split into zones by scenario end
-      // date (darker → lighter as fewer scenarios still reach that point).
-      // Actual is a separate bar in its own lane below — visually distinct
-      // so "what actually happened" reads at a glance.
+      // Multi-select: stacked sub-bars in 4 fixed lanes, each with a small
+      // letter badge anchored to the bar's left edge so the scenario name
+      // is readable without hovering.
       var multiClick = t.epicUrl ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')"' : '';
       var multiCur   = t.epicUrl ? 'cursor:pointer;' : '';
 
-      var entries = [];
+      var SCEN_LETTERS = { optimistic: 'O', realistic: 'R', pessimist: 'P' };
       ['optimistic', 'realistic', 'pessimist'].forEach(function(scenario) {
         if (selectedScenarios.indexOf(scenario) < 0) return;
         var sc = t[scenario];
         if (!sc || !sc.start || !sc.end) return;
-        var ss_ = parseDate(sc.start);
-        var es_ = parseDate(sc.end);
-        if (!ss_ || !es_) return;
-        entries.push({ name: scenario, start: ss_, end: es_ });
+        var sd2 = parseDate(sc.start);
+        var ed2 = parseDate(sc.end);
+        if (!sd2 || !ed2) return;
+        var l  = dayToPx(dayOffset(sd2));
+        var w  = Math.max(3, dayToPx(dayOffset(ed2)) - l);
+        var sName = scenario.charAt(0).toUpperCase() + scenario.slice(1);
+        var lbl   = sName + ': ' + fmtShort(sd2) + ' → ' + fmtShort(ed2);
+        ganttInner += '<div class="gantt-multi scen-' + scenario + '" ' +
+          'style="left:' + l + 'px;width:' + w + 'px;' + colorVar + multiCur + '"' +
+          multiClick + '>' +
+          '<span class="bar-label">' + lbl + '</span>' +
+          '</div>';
+        ganttInner += '<div class="gantt-lane-badge lane-' + scenario + '" ' +
+          'style="left:' + l + 'px;">' + SCEN_LETTERS[scenario] + '</div>';
       });
-
-      if (entries.length > 0) {
-        entries.sort(function(a, b) { return a.end - b.end; });
-        var minStart = entries.reduce(function(m, e) {
-          return (!m || e.start < m) ? e.start : m;
-        }, null);
-        var prevX = dayToPx(dayOffset(minStart));
-        entries.forEach(function(e, idx) {
-          var endX = dayToPx(dayOffset(e.end));
-          if (endX <= prevX) return;
-          var width = endX - prevX;
-          var capName = e.name.charAt(0).toUpperCase() + e.name.slice(1);
-          // Tooltip names the right-edge scenario AND lists which scenarios
-          // are still active in this zone (i.e., haven't ended yet).
-          var stillIn = entries.slice(idx).map(function(z) {
-            return z.name.charAt(0).toUpperCase() + z.name.slice(1);
-          }).join(', ');
-          var lbl = capName + ' end: ' + fmtShort(e.end) + '  |  within: ' + stillIn;
-          var klass = 'gantt-zone zone-' + (idx + 1)
-            + (idx === 0 ? ' first' : '')
-            + (idx === entries.length - 1 ? ' last' : '');
-          ganttInner += '<div class="' + klass + '" ' +
-            'style="left:' + prevX + 'px;width:' + width + 'px;' + colorVar + multiCur + '" ' +
-            'title="' + lbl + '"' + multiClick + '></div>';
-          prevX = endX;
-        });
-      }
 
       if (hasActual) {
         var aL = dayToPx(dayOffset(actSd_));
@@ -1538,9 +1533,13 @@ function buildTimeline(tasks, teamFilter) {
         var isOngoing2 = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
         var actEnd2    = isOngoing2 ? 'ongoing' : fmtShort(actEd_);
         var aLbl       = 'Actual: ' + fmtShort(actSd_) + ' → ' + actEnd2;
-        ganttInner += '<div class="gantt-actual-multi" ' +
-          'style="left:' + aL + 'px;width:' + aW + 'px;' + colorVar + multiCur + '" ' +
-          'title="' + aLbl + '"' + multiClick + '></div>';
+        ganttInner += '<div class="gantt-multi scen-actual" ' +
+          'style="left:' + aL + 'px;width:' + aW + 'px;' + multiCur + '"' +
+          multiClick + '>' +
+          '<span class="bar-label">' + aLbl + '</span>' +
+          '</div>';
+        ganttInner += '<div class="gantt-lane-badge lane-actual" ' +
+          'style="left:' + aL + 'px;">A</div>';
       }
     } else if (!hasActual && sd && ed) {
       // Case 1 — plan-only single bar (legacy class .gantt-bar)
