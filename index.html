@@ -417,8 +417,9 @@
   .task-row:hover .gantt-overrun { opacity: 1; }
 
   /* Multi-scenario stacked bars (when 2+ scenarios selected).
-     Three fixed vertical slots in the 38px row so each scenario lives
-     in a predictable position no matter which combination is selected. */
+     Four fixed vertical slots in the 38px row so each lane stays in a
+     predictable position regardless of which scenarios are selected.
+     Actual is always shown when present, parallel to the scenario lanes. */
   .gantt-multi {
     position: absolute; border-radius: 4px;
     min-width: 3px; z-index: 2;
@@ -426,14 +427,10 @@
     transition: opacity 0.12s ease, height 0.12s ease;
   }
   .task-row:hover .gantt-multi { opacity: 1; }
-  .gantt-multi.scen-optimistic { top: 7px;  height: 6px; opacity: 0.55; }
-  .gantt-multi.scen-realistic  { top: 16px; height: 6px; opacity: 0.95; }
-  .gantt-multi.scen-pessimist  {
-    top: 25px; height: 6px; opacity: 0.7;
-    background-color: transparent;
-    border: 1.5px dashed var(--c);
-    border-radius: 0;
-  }
+  .gantt-multi.scen-optimistic { top: 4px;  height: 5px; opacity: 0.6; }
+  .gantt-multi.scen-realistic  { top: 11px; height: 5px; opacity: 0.95; }
+  .gantt-multi.scen-pessimist  { top: 18px; height: 5px; opacity: 0.6; }
+  .gantt-multi.scen-actual     { top: 26px; height: 7px; opacity: 1; }
 
   /* Bar hover — segment grows in height and reveals date label inside.
      Mirrors the status-dot expand pattern: same colour, just thicker, with
@@ -1473,10 +1470,13 @@ function buildTimeline(tasks, teamFilter) {
     var colorVar = '--c:' + color + ';';
 
     if (selectedScenarios.length > 1) {
-      // Multi-select: stacked sub-bars, one per selected scenario. We skip
-      // the plan/actual split here because that visualization assumes a
-      // single planned timeline. Single-scenario mode still gets the
-      // richer rendering below.
+      // Multi-select: stacked sub-bars in fixed vertical lanes.
+      //   - One bar per selected scenario (Optimistic top → Pessimist bottom)
+      //   - Actual bar in its own bottom lane (always shown when present)
+      // Plan/actual split + overrun hatching are skipped here — those imply
+      // a single canonical plan, which doesn't apply when comparing.
+      var multiClick = t.epicUrl ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')"' : '';
+      var multiCur   = t.epicUrl ? 'cursor:pointer;' : '';
       ['optimistic', 'realistic', 'pessimist'].forEach(function(scenario) {
         if (selectedScenarios.indexOf(scenario) < 0) return;
         var sc = t[scenario];
@@ -1488,12 +1488,21 @@ function buildTimeline(tasks, teamFilter) {
         var w  = Math.max(3, dayToPx(dayOffset(ed2)) - l);
         var sName = scenario.charAt(0).toUpperCase() + scenario.slice(1);
         var lbl   = sName + ': ' + fmtShort(sd2) + ' → ' + fmtShort(ed2);
-        var click = t.epicUrl ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')"' : '';
-        var cur   = t.epicUrl ? 'cursor:pointer;' : '';
         ganttInner += '<div class="gantt-multi scen-' + scenario + '" ' +
-          'style="left:' + l + 'px;width:' + w + 'px;' + colorVar + cur + '" ' +
-          'title="' + lbl + '"' + click + '></div>';
+          'style="left:' + l + 'px;width:' + w + 'px;' + colorVar + multiCur + '" ' +
+          'title="' + lbl + '"' + multiClick + '></div>';
       });
+      // Always-on Actual lane (only if Jira gave us real start/end)
+      if (hasActual) {
+        var aL = dayToPx(dayOffset(actSd_));
+        var aW = Math.max(3, dayToPx(dayOffset(actEd_)) - aL);
+        var isOngoing2 = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
+        var actEnd2    = isOngoing2 ? 'ongoing' : fmtShort(actEd_);
+        var aLbl       = 'Actual: ' + fmtShort(actSd_) + ' → ' + actEnd2;
+        ganttInner += '<div class="gantt-multi scen-actual" ' +
+          'style="left:' + aL + 'px;width:' + aW + 'px;' + colorVar + multiCur + '" ' +
+          'title="' + aLbl + '"' + multiClick + '></div>';
+      }
     } else if (!hasActual && sd && ed) {
       // Case 1 — plan-only single bar (legacy class .gantt-bar)
       const left = dayToPx(dayOffset(sd));
