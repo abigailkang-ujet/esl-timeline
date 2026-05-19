@@ -416,6 +416,25 @@
   .task-row:hover .gantt-actual,
   .task-row:hover .gantt-overrun { opacity: 1; }
 
+  /* Multi-scenario stacked bars (when 2+ scenarios selected).
+     Three fixed vertical slots in the 38px row so each scenario lives
+     in a predictable position no matter which combination is selected. */
+  .gantt-multi {
+    position: absolute; border-radius: 4px;
+    min-width: 3px; z-index: 2;
+    background-color: var(--c);
+    transition: opacity 0.12s ease, height 0.12s ease;
+  }
+  .task-row:hover .gantt-multi { opacity: 1; }
+  .gantt-multi.scen-optimistic { top: 7px;  height: 6px; opacity: 0.55; }
+  .gantt-multi.scen-realistic  { top: 16px; height: 6px; opacity: 0.95; }
+  .gantt-multi.scen-pessimist  {
+    top: 25px; height: 6px; opacity: 0.7;
+    background-color: transparent;
+    border: 1.5px dashed var(--c);
+    border-radius: 0;
+  }
+
   /* Bar hover — segment grows in height and reveals date label inside.
      Mirrors the status-dot expand pattern: same colour, just thicker, with
      text fading in inside the bar. Label is allowed to overflow the bar
@@ -734,31 +753,60 @@ let showActual    = false; // toggled via "Show Actual" button; persisted in loc
 let activeSort    = 'default'; // 'default' | 'start' | 'end' | 'ideal'
 let flatView      = false;
 let lastUpdatedAt = '';
-let activeScenario = (function() {
-  try { return localStorage.getItem('esl-scenario') || 'realistic'; }
-  catch (e) { return 'realistic'; }
+// Multi-select scenario selection. At least 1 must always be selected.
+// When >1 selected, the Gantt renders stacked sub-bars (one per scenario).
+// When exactly 1 selected, behaves like the original single-scenario view
+// (plan + actual split, overrun hatching, etc. — all richer rendering).
+let selectedScenarios = (function() {
+  try {
+    var stored = localStorage.getItem('esl-scenarios');
+    if (stored) {
+      var parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+    // Migrate single-scenario key from prior version if present
+    var oldVal = localStorage.getItem('esl-scenario');
+    if (oldVal) return [oldVal];
+  } catch (e) {}
+  return ['realistic'];
 })();
 
-// Mutate every task's start/end/scenarioEffort to the selected scenario's values.
-// Each task carries t.optimistic / t.realistic / t.pessimist objects from the server.
-// Tasks without that scenario's data (missing row in sibling tab) keep blank → no Gantt bar.
-function applyScenario(scenario) {
+function saveScenarios() {
+  try { localStorage.setItem('esl-scenarios', JSON.stringify(selectedScenarios)); }
+  catch (e) {}
+}
+
+// "Primary" scenario drives non-Gantt computations: Schedule badge, Past Ideal
+// Date count, at-risk hatching, etc. When multiple are selected, prefer
+// Realistic; otherwise fall back to whichever single one is selected.
+function primaryScenario() {
+  if (selectedScenarios.indexOf('realistic') >= 0) return 'realistic';
+  return selectedScenarios[0] || 'realistic';
+}
+
+// Apply the primary scenario's dates onto each task's t.start / t.end /
+// t.scenarioEffort. Multi-select mode also reads t.optimistic / t.realistic /
+// t.pessimist directly during Gantt rendering to draw the additional sub-bars.
+function applyScenarios() {
+  var primary = primaryScenario();
   ALL_TASKS.forEach(function(t) {
-    const s = t[scenario] || t.realistic || {};
+    var s = t[primary] || t.realistic || {};
     t.start          = s.start  || '';
     t.end            = s.end    || '';
     t.scenarioEffort = s.effort || 0;
   });
 }
 
-function setScenario(scenario) {
-  if (scenario === activeScenario) return;
-  activeScenario = scenario;
-  try { localStorage.setItem('esl-scenario', scenario); } catch (e) {}
-  applyScenario(scenario);
-  document.querySelectorAll('#scenario-toggle button').forEach(function(b) {
-    b.classList.toggle('active', b.dataset.scenario === scenario);
-  });
+function toggleScenario(scenario) {
+  var idx = selectedScenarios.indexOf(scenario);
+  if (idx >= 0) {
+    if (selectedScenarios.length === 1) return;  // can't deselect the last one
+    selectedScenarios.splice(idx, 1);
+  } else {
+    selectedScenarios.push(scenario);
+  }
+  saveScenarios();
+  applyScenarios();
   renderAll(null);
 }
 
@@ -766,7 +814,7 @@ function loadData() {
   try {
     const json = <?!= timelineData ?>;
     ALL_TASKS = json.tasks || [];
-    applyScenario(activeScenario);
+    applyScenarios();
     // Scenario toggle is built inside renderControls() (ctrlRow2) and wires
     // its own click handlers on creation — nothing to wire here.
     renderAll(json.updatedAt);
@@ -912,7 +960,7 @@ function renderAll(updatedAt) {
   scenSep.style.cssText = 'display:inline-block;width:1px;height:16px;background:var(--border-mid);margin:0 10px;align-self:center;';
   ctrlRow2.appendChild(scenSep);
 
-  // Scenario toggle (moved here from header)
+  // Scenario toggle (multi-select)
   var scenLbl = document.createElement('span');
   scenLbl.className = 'filter-label';
   scenLbl.textContent = 'Scenario';
@@ -920,13 +968,13 @@ function renderAll(updatedAt) {
   var scenWrap = document.createElement('div');
   scenWrap.className = 'scenario-toggle';
   scenWrap.id = 'scenario-toggle';
-  scenWrap.title = 'Switch which scenario drives the Gantt dates';
+  scenWrap.title = 'Click to toggle each scenario. Select multiple to compare side-by-side on the Gantt.';
   [{v:'optimistic',l:'Optimistic'},{v:'realistic',l:'Realistic'},{v:'pessimist',l:'Pessimist'}].forEach(function(opt) {
     var b = document.createElement('button');
     b.dataset.scenario = opt.v;
     b.textContent = opt.l;
-    if (opt.v === activeScenario) b.classList.add('active');
-    b.addEventListener('click', function() { setScenario(opt.v); });
+    if (selectedScenarios.indexOf(opt.v) >= 0) b.classList.add('active');
+    b.addEventListener('click', function() { toggleScenario(opt.v); });
     scenWrap.appendChild(b);
   });
   ctrlRow2.appendChild(scenWrap);
@@ -1424,7 +1472,29 @@ function buildTimeline(tasks, teamFilter) {
     // on .gantt-bar / .gantt-actual; the ongoing gradient overrides it.
     var colorVar = '--c:' + color + ';';
 
-    if (!hasActual && sd && ed) {
+    if (selectedScenarios.length > 1) {
+      // Multi-select: stacked sub-bars, one per selected scenario. We skip
+      // the plan/actual split here because that visualization assumes a
+      // single planned timeline. Single-scenario mode still gets the
+      // richer rendering below.
+      ['optimistic', 'realistic', 'pessimist'].forEach(function(scenario) {
+        if (selectedScenarios.indexOf(scenario) < 0) return;
+        var sc = t[scenario];
+        if (!sc || !sc.start || !sc.end) return;
+        var sd2 = parseDate(sc.start);
+        var ed2 = parseDate(sc.end);
+        if (!sd2 || !ed2) return;
+        var l  = dayToPx(dayOffset(sd2));
+        var w  = Math.max(3, dayToPx(dayOffset(ed2)) - l);
+        var sName = scenario.charAt(0).toUpperCase() + scenario.slice(1);
+        var lbl   = sName + ': ' + fmtShort(sd2) + ' → ' + fmtShort(ed2);
+        var click = t.epicUrl ? ' onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')"' : '';
+        var cur   = t.epicUrl ? 'cursor:pointer;' : '';
+        ganttInner += '<div class="gantt-multi scen-' + scenario + '" ' +
+          'style="left:' + l + 'px;width:' + w + 'px;' + colorVar + cur + '" ' +
+          'title="' + lbl + '"' + click + '></div>';
+      });
+    } else if (!hasActual && sd && ed) {
       // Case 1 — plan-only single bar (legacy class .gantt-bar)
       const left = dayToPx(dayOffset(sd));
       const width = Math.max(3, dayToPx(dayOffset(ed)) - left);
