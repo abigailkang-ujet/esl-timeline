@@ -95,13 +95,13 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 
 ---
 
-## File Status (as of 2026-05-19)
+## File Status (as of 2026-05-20)
 
 | File | Status | Description |
 |------|--------|-------------|
-| `webApp.gs` | ✅ Deployed | 3-scenario read (Optimistic/Realistic/Pessimist sibling tabs, position-based column read), Jira live sync (status/start/end/issuelinks), `pushIdealToJira()` write-back, Notion join |
-| `index.html` | ✅ Deployed | Scenario multi-select toggle (stacked 4-lane Gantt + letter badges + hover labels), default sort = plan start within team, glass cards, pill hover, PRD PM-grouped cards, Risk H/M/L chips, Schedule strip, Program Weeks Elapsed/Total |
-| `syncNotionToSheets.gs` | ✅ Refactored (787 lines) | Clear+dump strategy, jira_url as PK, `ensureOverallAnchors()` auto-append, "Jira Push" menu (Sheet Ideal → Jira Committed Date) |
+| `webApp.gs` | ✅ Deployed | 3-scenario read (S1/S2/S3 sibling tabs, position-based column read), Jira live sync (status/start/end/T-shirt/issuelinks), `pushIdealToJira()` write-back, `postJiraCommentFromUI()` callable via google.script.run, `compareSizesNotionVsJira()` diff tool, Late-reason comment fetcher (parallel, cached) |
+| `index.html` | ✅ Deployed | Late reason modal + tooltip (overrun-bar click/hover), T-shirt Size column (blue chip family, format-tolerant), Scenario multi-select toggle (stacked 4-lane Gantt + letter badges + hover labels), default sort = plan start within team, glass cards, pill hover, PRD PM-grouped cards, Risk H/M/L chips, Schedule strip, Program Weeks Elapsed/Total |
+| `syncNotionToSheets.gs` | ✅ Active | Clear+dump strategy, jira_url as PK, `ensureOverallAnchors()` auto-append, "Jira Push" menu (Push Ideal → Jira Committed Date + Compare Sizes: Notion vs Jira) |
 | `timeline.html` | Backup | Local standalone version |
 | `syncToNotion.gs` | Deferred | Reverse sync (not needed) |
 
@@ -259,6 +259,33 @@ Located in ctrlRow2 (second control row), next to Search.
 
 ### Default sort (2026-05-19)
 `activeSort` initial value changed from `'default'` (sheet row order) to `'start'` — tasks within each team sort by plan start ASC on first load. flatView still defaults to false so teams stay grouped.
+
+### T-shirt Size column (2026-05-20)
+New column "Size" between Risk and Plan Start.
+
+- **Data source**: Jira `customfield_11190` (T-shirt size estimation). Fetched live via `fetchJiraLive` (5-min cache). Falls back to Notion `Eng Size` if the Jira customfield is empty for that task.
+- **Visual**: blue chip family — distinct from Risk's red/amber/green so the two columns never visually collide.
+  - `S` = lightest blue, `M`, `L`, `XL` = progressively deeper blue
+  - Light-mode overrides darken the color so contrast holds on white
+- **Hover**: letter expands to full word (`Small / Medium / Large / Extra Large`) — mirrors the Risk chip pattern.
+- **Format tolerance**: `buildTshirtBadge(size)` recognizes bare letters (`S`), full words (`Small`), and Jira's `"L - Large"` / `"XL - Extra Large"` select-list format. XL is checked first so `X-Large` doesn't get caught by the bare-L branch.
+- Collapsible column (`data-col="size"`).
+
+### Late-reason comments → Jira (2026-05-20)
+Late-task (overrun / red-hatched Gantt segment) gets a click + hover affordance for posting and reading reasons as Jira comments.
+
+- **Click overrun bar** → opens modal:
+  - First time: prompts for the user's name, stores it in localStorage `'esl-author-name'`
+  - Reason textarea, Post / Cancel buttons, status line
+  - Submitted body format: `Late reason — [Name] reason text` (the "Late reason —" prefix so the Jira comment reads sensibly out of timeline context)
+- **Hover overrun bar (250ms delay)** → custom floating tooltip:
+  - Header line: `Late · plan {end} → actual {end}` (red, uppercase)
+  - Comments list (author · date / body) — only comments matching our convention (`Late reason —…` or legacy `[…`) are surfaced; unrelated Jira chatter stays out
+  - Empty state when no reasons logged yet
+  - Hint: "Click bar to add reason"
+- **Submission path**: `google.script.run.postJiraCommentFromUI(jiraKey, text)` calls server-side, which POSTs ADF body to `/rest/api/3/issue/{key}/comment`. Returns `{ ok, id, key, comment }`. Returned `comment` is optimistically appended to `ALL_TASKS[i].lateComments` so the next hover reflects the new entry without waiting for the 5-min server cache to expire.
+- **Why `google.script.run` and not fetch**: Apps Script webapps render in a sandbox iframe on a different origin, so `fetch(window.location)` hits the sandbox and gets the HTML page back instead of JSON. `google.script.run` is the supported RPC channel.
+- **Reading existing comments**: `fetchLateCommentsFromJira_(jiraKeys)` parallel-fetches `/comment` for tasks whose actual end is past plan end (overrun), filters to our late-reason convention, caches 5 min via CacheService. `postJiraCommentFromUI` invalidates that cache on success.
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
 - **Show Actual (2026-04-28; scope narrowed 2026-05-07)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.actualStart` / `t.actualEnd` (Jira REST direct, Notion-synced fallback). **Toggle controls the columns only — the Gantt bar's dual-bar treatment now renders independently whenever effective actual data exists** (see Gantt section below).
@@ -424,16 +451,19 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **Deploy**: git commit ≠ live. After merging to `main`, manually paste changed files into the Apps Script editor and use **Deploy → Manage deployments → Edit → New version** to preserve the URL.
 - **No test framework**. Verification is static (grep/read) + post-deploy visual checks.
 
-## Current Status (2026-05-19)
+## Current Status (2026-05-20)
 
 - 7 teams (CALL, SDK, CHAT, API, Email, AGX, DATA), ADX removed
-- **jira_url PK refactor complete** — Sheets schema fully on jira_url PK; `syncNotionToSheets.gs` simplified to clear+dump (787 lines)
+- **jira_url PK refactor complete** — Sheets schema fully on jira_url PK; `syncNotionToSheets.gs` simplified to clear+dump
 - Notion_raw: ~37 data rows, jira_url at col J, Notion_ID at col T
 - **Daily auto-sync trigger active** — runs `syncNotionToSheets` every day at 7AM
-- **3-scenario data plumbing** (2026-05-19): server reads Optimistic / Realistic / Pessimistic tabs by column position (B=Epic URL, H=Start, I=End, K=Effort). Each task exposes `t.optimistic / t.realistic / t.pessimist` with `{start, end, effort}`. Realistic stays canonical for non-date fields (Lead, PM, Headcount, etc.) and for the initial `t.start / t.end`.
-- **Multi-scenario Gantt** (2026-05-19): toggle in second control row supports multi-select. Single-select keeps the rich plan/actual rendering; 2+ selected renders stacked 4-lane bars (Optimistic / Realistic / Pessimist / Actual) with letter badges (O/R/P/A) at left and hover-revealed inline labels. Actual uses a distinct slate color so it doesn't blend with team-coloured plan bars.
-- **Jira live override** (existing, expanded 2026-05-07): webApp.gs hits Jira REST at render time (5-min cache) to refresh status / actualStart / actualEnd / statusChangedAt / resolvedAt / issuelinks (Blocks + Relates). Token in Script Properties as `jiraToken`.
-- **Jira write-back** (2026-05-18): "Jira Push" menu pushes Sheet's `Ideal Delivery (due to SOW)` value into Jira's `customfield_11900` (Committed Date) for each task. Dry-run + confirm dialog gating.
+- **3-scenario data plumbing** (2026-05-19): server reads Optimistic / Realistic / Pessimistic tabs by column position. Each task exposes `t.optimistic / t.realistic / t.pessimist` with `{start, end, effort}`.
+- **Multi-scenario Gantt** (2026-05-19): multi-select toggle. Single-select = rich plan/actual rendering. 2+ selected = stacked 4-lane bars (O/R/P/A) with letter badges + hover labels. Actual lane in slate to stand out from team-coloured plan bars. Scenario default = Realistic only on every load (no localStorage restore).
+- **Jira live override**: webApp.gs hits Jira REST at render time (5-min cache) for status / actualStart / actualEnd / statusChangedAt / resolvedAt / issuelinks (Blocks + Relates) / **T-shirt size (`customfield_11190`)**. Token in Script Properties as `jiraToken`.
+- **Jira write-back** (2026-05-18): "Jira Push" menu pushes Sheet's `Ideal Delivery (due to SOW)` value into Jira's `customfield_11900` (Committed Date). Dry-run + confirm dialog gating.
+- **T-shirt Size column** (2026-05-20): new Size column between Risk and Plan Start. Source = Jira customfield_11190, falls back to Notion Eng Size. Blue chip family (distinct from Risk red/amber/green). Format-tolerant normalizer handles bare letters, full words, and `"L - Large"` select-list format.
+- **Late-reason → Jira comments** (2026-05-20): click red hatch on overrun bar → modal posts `Late reason — [Name] reason` as a Jira comment via `google.script.run.postJiraCommentFromUI`. Hover overrun bar → custom tooltip shows date + posted reasons (parallel-fetched, 5-min cache, filtered to our convention). Optimistic local update on submit; ESC closes; toast confirms.
+- **Size diff tool** (2026-05-20): "Jira Push → Compare Sizes: Notion vs Jira" menu populates a colour-coded "Size_diff" tab with per-row status (MATCH / MISMATCH / ONLY_IN_NOTION / ONLY_IN_JIRA / JIRA_FETCH_FAILED / NO_JIRA_KEY).
 - **Default sort** (2026-05-19): tasks sort by plan start ASC within each team on first load.
 - **webApp.gs deployed (2026-04-27)** — local + main + live now in sync
 - syncNotionToSheets.gs: deployed and validated — 3 tests passed (manual anchor run, full sync, anchor recreation), Notion_raw row reorder doesn't break Overall
