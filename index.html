@@ -2724,14 +2724,16 @@ function submitLateReason() {
 }
 
 function postJiraComment(jiraKey, text) {
-  // Send as text/plain to dodge CORS preflight; server reads e.postData.contents.
-  // window.location.href on the Apps Script webapp ends in /exec, which is the
-  // same endpoint that handles doPost.
-  return fetch(window.location.href.split('?')[0], {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'postJiraComment', jiraKey: jiraKey, text: text }),
-  }).then(function(r) { return r.json(); });
+  // Apps Script webapps run their HtmlService page inside a sandbox iframe
+  // on a different origin, so window.location.href doesn't point at the
+  // /exec endpoint and fetch() returns the HTML page instead of JSON.
+  // The supported way to reach server-side code is google.script.run.
+  return new Promise(function(resolve, reject) {
+    google.script.run
+      .withSuccessHandler(function(res) { resolve(res); })
+      .withFailureHandler(function(err) { reject(err); })
+      .postJiraCommentFromUI(jiraKey, text);
+  });
 }
 
 // ── Toast notifications ──

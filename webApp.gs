@@ -82,30 +82,20 @@ function doGet(e) {
 }
 
 // ============================================================
-// Web App POST entry — currently for posting late-reason comments
-// to Jira. Body is parsed from e.postData.contents (frontend sends
-// JSON as text/plain to dodge CORS preflight).
+// Late-reason → Jira comment (called from index.html via
+// google.script.run.postJiraCommentFromUI). google.script.run is the
+// only reliable way to hit Apps Script server-side from a webapp's
+// HtmlService page — fetch() targets the sandbox iframe origin and
+// gets the HTML page back instead of the script.
 // ============================================================
-function doPost(e) {
-  try {
-    var body = (e && e.postData) ? JSON.parse(e.postData.contents) : {};
-    if (body.action === 'postJiraComment') {
-      return _handlePostJiraComment_(body);
-    }
-    return _jsonResp_({ ok: false, error: 'Unknown action: ' + (body.action || '(none)') });
-  } catch (err) {
-    return _jsonResp_({ ok: false, error: 'doPost: ' + err.message });
-  }
-}
-
-function _handlePostJiraComment_(body) {
-  var key  = String(body.jiraKey || '').trim();
-  var text = String(body.text    || '').trim();
-  if (!key)  return _jsonResp_({ ok: false, error: 'jiraKey required' });
-  if (!text) return _jsonResp_({ ok: false, error: 'text required' });
+function postJiraCommentFromUI(jiraKey, text) {
+  var key  = String(jiraKey || '').trim();
+  var body = String(text    || '').trim();
+  if (!key)  return { ok: false, error: 'jiraKey required' };
+  if (!body) return { ok: false, error: 'text required' };
 
   var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
-  if (!token) return _jsonResp_({ ok: false, error: 'jiraToken not set in Script Properties' });
+  if (!token) return { ok: false, error: 'jiraToken not set in Script Properties' };
   var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
 
   // Jira REST v3 comment body must be in Atlassian Document Format (ADF).
@@ -114,7 +104,7 @@ function _handlePostJiraComment_(body) {
       type: 'doc', version: 1,
       content: [{
         type: 'paragraph',
-        content: [{ type: 'text', text: text }]
+        content: [{ type: 'text', text: body }]
       }]
     }
   };
@@ -133,20 +123,15 @@ function _handlePostJiraComment_(body) {
     if (code === 201) {
       var json = JSON.parse(resp.getContentText());
       Logger.log('[jira-comment] posted to ' + key + ' (id=' + json.id + ')');
-      return _jsonResp_({ ok: true, id: json.id, key: key });
+      return { ok: true, id: json.id, key: key };
     }
     var snip = resp.getContentText().slice(0, 300);
     Logger.log('[jira-comment] HTTP ' + code + ' for ' + key + ': ' + snip);
-    return _jsonResp_({ ok: false, error: 'Jira HTTP ' + code + ': ' + snip });
+    return { ok: false, error: 'Jira HTTP ' + code + ': ' + snip };
   } catch (err) {
-    Logger.log('[jira-comment] fetch threw: ' + err.message);
-    return _jsonResp_({ ok: false, error: 'Fetch threw: ' + err.message });
+    Logger.log('[jira-comment] threw: ' + err.message);
+    return { ok: false, error: 'Threw: ' + err.message };
   }
-}
-
-function _jsonResp_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ============================================================
