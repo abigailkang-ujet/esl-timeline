@@ -2165,16 +2165,26 @@ function scheduleColor(s) {
 function buildTshirtBadge(size) {
   if (!size) return '<span class="tshirt-none">-</span>';
   var raw = String(size).trim();
+  var lc  = raw.toLowerCase();
 
-  // Normalize various Jira / Notion input shapes to S / M / L / XL.
-  // Lowercase + strip spaces / dashes / underscores so "Extra Large",
-  // "extra-large", "x-large", "XL " all collapse to the same key.
-  var lc = raw.toLowerCase().replace(/[\s\-_]+/g, '');
+  // Match by leading token so all of these work transparently:
+  //   "S", "Small", "S - Small"          → S
+  //   "M", "Medium", "M - Medium", "Med" → M
+  //   "L", "Large", "L - Large"          → L
+  //   "XL", "X-Large", "Extra Large"     → XL
+  // XL is checked first so "X…" doesn't get caught by the bare-L branch
+  // below ("X" itself starts with 'x', not 'l', but "X-Large" / "XL - Extra
+  // Large" formats are common enough to be worth an explicit pattern).
   var info = null;
-  if      (lc === 's'  || lc === 'small')                                              info = { k: 'S',  w: 'Small' };
-  else if (lc === 'm'  || lc === 'med' || lc === 'medium')                             info = { k: 'M',  w: 'Medium' };
-  else if (lc === 'l'  || lc === 'large' || lc === 'lrg' || lc === 'lg')               info = { k: 'L',  w: 'Large' };
-  else if (lc === 'xl' || lc === 'xlarge' || lc === 'extralarge' || lc === 'xxl')      info = { k: 'XL', w: 'Extra Large' };
+  if (/^xl\b/.test(lc) || /^x[\s\-]?l/.test(lc) || lc.indexOf('extra') === 0) {
+    info = { k: 'XL', w: 'Extra Large' };
+  } else if (lc.charAt(0) === 's') {
+    info = { k: 'S',  w: 'Small' };
+  } else if (lc.charAt(0) === 'm') {
+    info = { k: 'M',  w: 'Medium' };
+  } else if (lc.charAt(0) === 'l') {
+    info = { k: 'L',  w: 'Large' };
+  }
 
   if (info) {
     return '<span class="tshirt-badge tshirt-' + info.k + '">' +
@@ -2182,9 +2192,7 @@ function buildTshirtBadge(size) {
       '<span class="tshirt-word">' + info.w + '</span>' +
       '</span>';
   }
-  // Unknown value — show raw text with title attribute so the value
-  // isn't lost; if you see this in the UI, please share the value so
-  // it can be added to the normalizer.
+  // Truly unrecognized — keep raw text so nothing is silently dropped.
   return '<span class="tshirt-none" title="' + raw + '">' + raw + '</span>';
 }
 
