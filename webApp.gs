@@ -25,7 +25,7 @@ const JIRA_FIELD_START     = 'customfield_11014';   // Jira Start Date custom fi
 const JIRA_FIELD_END       = 'duedate';
 const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custom field (write target for pushIdealToJira)
 const JIRA_FIELD_TSHIRT    = 'customfield_11190';   // Jira T-shirt size estimation (compared against Notion Eng Size)
-const JIRA_CACHE_KEY       = 'esl-jira-live-v3';    // bump on parser/shape change
+const JIRA_CACHE_KEY       = 'esl-jira-live-v4';    // bump on parser/shape change
 const JIRA_CACHE_TTL       = 300;                    // 5 minutes
 const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v1';
 const JIRA_LATE_COMMENTS_CACHE_TTL = 300;            // 5 minutes
@@ -507,6 +507,10 @@ function buildTimelineData() {
     t.actualEnd       = liveEntry.end   || '';
     t.statusChangedAt = liveEntry.statusChangedAt || '';
     t.resolvedAt      = liveEntry.resolvedAt      || '';
+    // T-shirt size: Jira is the authoritative source going forward. Fall
+    // back to whatever Notion synced if Jira's field is empty (so we don't
+    // drop data when the customfield happens to be blank on an issue).
+    if (liveEntry.tshirt) t.engSize = liveEntry.tshirt;
     // Override Notion-synced blocking / blockedBy with Jira-derived. Relates is
     // Jira-only (Notion has no equivalent), so it just copies the parsed list.
     if (liveEntry.blocking)  t.blocking  = liveEntry.blocking;
@@ -573,7 +577,7 @@ function fetchJiraLive(jiraKeys) {
   var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search/jql';
   var bodyJson = JSON.stringify({
     jql: jql,
-    fields: ['status', JIRA_FIELD_START, JIRA_FIELD_END,
+    fields: ['status', JIRA_FIELD_START, JIRA_FIELD_END, JIRA_FIELD_TSHIRT,
              'statuscategorychangedate', 'resolutiondate', 'issuelinks'],
     maxResults: 200
   });
@@ -600,6 +604,7 @@ function fetchJiraLive(jiraKeys) {
         status:          (f.status && f.status.name) || '',
         start:           f[JIRA_FIELD_START] || '',
         end:             f[JIRA_FIELD_END]   || '',
+        tshirt:          _extractTshirtValue_(f[JIRA_FIELD_TSHIRT]),
         statusChangedAt: f.statuscategorychangedate || '',
         resolvedAt:      f.resolutiondate           || '',
         blocking:  [],   // Jira keys this task blocks (Blocks type, outward)
