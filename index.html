@@ -2164,16 +2164,28 @@ function scheduleColor(s) {
 
 function buildTshirtBadge(size) {
   if (!size) return '<span class="tshirt-none">-</span>';
-  var s = String(size).trim();
-  var fullWord = { S: 'Small', M: 'Medium', L: 'Large', XL: 'Extra Large' }[s];
-  if (fullWord) {
-    return '<span class="tshirt-badge tshirt-' + s + '">' +
-      '<span class="tshirt-letter">' + s + '</span>' +
-      '<span class="tshirt-word">' + fullWord + '</span>' +
+  var raw = String(size).trim();
+
+  // Normalize various Jira / Notion input shapes to S / M / L / XL.
+  // Lowercase + strip spaces / dashes / underscores so "Extra Large",
+  // "extra-large", "x-large", "XL " all collapse to the same key.
+  var lc = raw.toLowerCase().replace(/[\s\-_]+/g, '');
+  var info = null;
+  if      (lc === 's'  || lc === 'small')                                              info = { k: 'S',  w: 'Small' };
+  else if (lc === 'm'  || lc === 'med' || lc === 'medium')                             info = { k: 'M',  w: 'Medium' };
+  else if (lc === 'l'  || lc === 'large' || lc === 'lrg' || lc === 'lg')               info = { k: 'L',  w: 'Large' };
+  else if (lc === 'xl' || lc === 'xlarge' || lc === 'extralarge' || lc === 'xxl')      info = { k: 'XL', w: 'Extra Large' };
+
+  if (info) {
+    return '<span class="tshirt-badge tshirt-' + info.k + '">' +
+      '<span class="tshirt-letter">' + info.k + '</span>' +
+      '<span class="tshirt-word">' + info.w + '</span>' +
       '</span>';
   }
-  // Unknown value — fall back to plain text so we don't lose data.
-  return '<span class="tshirt-none" title="' + s + '">' + s + '</span>';
+  // Unknown value — show raw text with title attribute so the value
+  // isn't lost; if you see this in the UI, please share the value so
+  // it can be added to the normalizer.
+  return '<span class="tshirt-none" title="' + raw + '">' + raw + '</span>';
 }
 
 function buildRiskBadge(risk) {
