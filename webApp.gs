@@ -24,6 +24,7 @@ const JIRA_EMAIL       = 'abigail.kang@ujet.cx';
 const JIRA_FIELD_START     = 'customfield_11014';   // Jira Start Date custom field
 const JIRA_FIELD_END       = 'duedate';
 const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custom field (write target for pushIdealToJira)
+const JIRA_FIELD_TSHIRT    = 'customfield_11190';   // Jira T-shirt size estimation (compared against Notion Eng Size)
 const JIRA_CACHE_KEY       = 'esl-jira-live-v3';    // bump on parser/shape change
 const JIRA_CACHE_TTL       = 300;                    // 5 minutes
 const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v1';
@@ -233,6 +234,164 @@ function extractAdfText_(adf) {
   }
   walk(adf);
   return parts.join(' ').trim();
+}
+
+// ============================================================
+// Compare T-shirt sizes: Notion_raw "Eng Size" vs Jira customfield
+// ============================================================
+// One-shot diagnostic run from the "Jira Push → Compare Sizes" menu.
+// Pulls Eng Size from Notion_raw, fetches JIRA_FIELD_TSHIRT for every
+// task in parallel, writes a per-row diff to a "Size_diff" tab.
+// Status legend:
+//   MATCH                — values agree (or both empty)
+//   MISMATCH             — both have a value but they differ
+//   ONLY_IN_NOTION       — Notion has a value, Jira is empty
+//   ONLY_IN_JIRA         — Jira has a value, Notion is empty
+//   NO_JIRA_KEY          — sheet row has no Jira URL, skipped
+//   JIRA_FETCH_FAILED    — Jira returned non-200 or threw
+// ============================================================
+function compareSizesNotionVsJira() {
+  var ui = SpreadsheetApp.getUi();
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) { ui.alert('jiraToken not set in Script Properties'); return; }
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast('Fetching Jira T-shirt sizes…', 'Size Diff', 30);
+
+  // Read Notion_raw: Requirement (A), Eng Size (G), JIRA (J)
+  var raw = ss.getSheetByName(NOTION_RAW_TAB);
+  if (!raw) { ui.alert('Notion_raw tab not found'); return; }
+  var lastRow = raw.getLastRow();
+  if (lastRow < 2) { ui.alert('Notion_raw is empty'); return; }
+  var data = raw.getRange(2, 1, lastRow - 1, 10).getValues();  // cols A..J
+
+  // Build per-row list of { req, notionSize, jiraKey, jiraUrl }
+  var rows = data.map(function(r) {
+    var url = String(r[9] || '').trim();   // col J
+    return {
+      req:        String(r[0] || '').trim(),       // col A
+      notionSize: String(r[6] || '').trim(),       // col G
+      jiraUrl:    url,
+      jiraKey:    extractJiraKey(url),
+    };
+  });
+
+  // Parallel fetch JIRA_FIELD_TSHIRT for every row with a jira key
+  var keysToFetch = rows.filter(function(r) { return r.jiraKey; })
+                        .map(function(r) { return r.jiraKey; });
+  var requests = keysToFetch.map(function(k) {
+    return {
+      url: 'https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + encodeURIComponent(k)
+           + '?fields=' + JIRA_FIELD_TSHIRT,
+      method: 'get',
+      headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    };
+  });
+
+  var jiraSizeByKey = {};
+  var fetchFailed = {};
+  try {
+    var responses = UrlFetchApp.fetchAll(requests);
+    responses.forEach(function(resp, idx) {
+      var key = keysToFetch[idx];
+      if (resp.getResponseCode() !== 200) { fetchFailed[key] = true; return; }
+      try {
+        var j = JSON.parse(resp.getContentText());
+        jiraSizeByKey[key] = _extractTshirtValue_(j.fields && j.fields[JIRA_FIELD_TSHIRT]);
+      } catch (e) { fetchFailed[key] = true; }
+    });
+  } catch (e) {
+    ui.alert('fetchAll threw: ' + e.message);
+    return;
+  }
+
+  // Build diff
+  var diffRows = rows.map(function(r) {
+    var jSize = '';
+    var status;
+    if (!r.jiraKey) {
+      status = 'NO_JIRA_KEY';
+    } else if (fetchFailed[r.jiraKey]) {
+      status = 'JIRA_FETCH_FAILED';
+    } else {
+      jSize = jiraSizeByKey[r.jiraKey] || '';
+      var n = r.notionSize, j = jSize;
+      if (n === j)              status = 'MATCH';
+      else if (n && !j)         status = 'ONLY_IN_NOTION';
+      else if (!n && j)         status = 'ONLY_IN_JIRA';
+      else                      status = 'MISMATCH';
+    }
+    return [r.jiraKey || '', r.req, r.notionSize, jSize, status];
+  });
+
+  // Sort: MISMATCH first, then ONLY_IN_*, then failures, then matches
+  var statusOrder = { MISMATCH:0, ONLY_IN_NOTION:1, ONLY_IN_JIRA:1, JIRA_FETCH_FAILED:2, NO_JIRA_KEY:3, MATCH:4 };
+  diffRows.sort(function(a, b) { return (statusOrder[a[4]] || 99) - (statusOrder[b[4]] || 99); });
+
+  // Write to Size_diff tab
+  var diff = getOrCreateSheet_(ss, 'Size_diff');
+  diff.clearContents();
+  diff.clearFormats();
+  var header = [['JIRA Key', 'Requirement', 'Notion Eng Size', 'Jira T-shirt', 'Status', 'Run At']];
+  var now = new Date().toLocaleString();
+  var allRows = header.concat(diffRows.map(function(r) { return r.concat([now]); }));
+  diff.getRange(1, 1, allRows.length, 6).setValues(allRows);
+
+  // Header style
+  diff.getRange(1, 1, 1, 6)
+      .setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+
+  // Row backgrounds by status
+  if (diffRows.length > 0) {
+    var bgs = diffRows.map(function(r) {
+      var c;
+      switch (r[4]) {
+        case 'MISMATCH':          c = '#fde2e2'; break;  // light red
+        case 'ONLY_IN_NOTION':    c = '#fef3c7'; break;  // light amber
+        case 'ONLY_IN_JIRA':      c = '#fef3c7'; break;
+        case 'JIRA_FETCH_FAILED': c = '#fce7f3'; break;  // light pink
+        case 'NO_JIRA_KEY':       c = '#f3f4f6'; break;  // light grey
+        case 'MATCH':             c = '#dcfce7'; break;  // light green
+        default:                  c = '#ffffff';
+      }
+      return [c, c, c, c, c, c];
+    });
+    diff.getRange(2, 1, bgs.length, 6).setBackgrounds(bgs);
+  }
+  diff.autoResizeColumns(1, 6);
+  diff.setFrozenRows(1);
+  ss.setActiveSheet(diff);
+
+  // Summary alert
+  var counts = { MATCH:0, MISMATCH:0, ONLY_IN_NOTION:0, ONLY_IN_JIRA:0, NO_JIRA_KEY:0, JIRA_FETCH_FAILED:0 };
+  diffRows.forEach(function(r) { counts[r[4]] = (counts[r[4]] || 0) + 1; });
+  ui.alert('Size Comparison',
+    'Notion vs Jira T-shirt sizes — see "Size_diff" tab.\n\n' +
+    'MISMATCH          : ' + counts.MISMATCH + '\n' +
+    'ONLY in Notion    : ' + counts.ONLY_IN_NOTION + '\n' +
+    'ONLY in Jira      : ' + counts.ONLY_IN_JIRA + '\n' +
+    'Jira fetch failed : ' + counts.JIRA_FETCH_FAILED + '\n' +
+    'No Jira key       : ' + counts.NO_JIRA_KEY + '\n' +
+    'MATCH (agree)     : ' + counts.MATCH,
+    ui.ButtonSet.OK);
+}
+
+// Jira custom-field values come in several shapes depending on field type:
+//   - select-list:  { value: 'M', id: '...', ... }
+//   - free text:    'M'
+//   - cascading:    { value: '...', child: {...} }
+// Return the printable label (or '' if empty).
+function _extractTshirtValue_(field) {
+  if (field == null) return '';
+  if (typeof field === 'string') return field.trim();
+  if (typeof field === 'object') {
+    if (field.value)       return String(field.value).trim();
+    if (field.name)        return String(field.name).trim();
+    if (field.displayName) return String(field.displayName).trim();
+  }
+  return '';
 }
 
 // ============================================================

@@ -582,6 +582,8 @@ function onOpen() {
   ui.createMenu('Jira Push')
     .addItem('Push Ideal → Jira (Dry Run)', 'pushIdealToJiraDryRun')
     .addItem('Push Ideal → Jira', 'pushIdealToJira')
+    .addSeparator()
+    .addItem('Compare Sizes: Notion vs Jira', 'compareSizesNotionVsJira')
     .addToUi();
 }
 
