@@ -198,10 +198,13 @@ function fetchLateCommentsFromJira_(jiraKeys) {
           created: c.created || '',
         };
       }).filter(function(c) {
-        // Only surface comments that match our late-reason convention:
-        // body must start with "[" (i.e. "[Author] reason"). Keeps the
-        // tooltip free of unrelated Jira chatter.
-        return c.body && c.body.trim().charAt(0) === '[';
+        // Only surface comments that match our late-reason convention.
+        // Current format starts with "Late reason —"; older comments
+        // (posted before that prefix existed) start with "[Author]".
+        // Match either so legacy entries stay visible.
+        if (!c.body) return false;
+        var b = c.body.trim();
+        return b.indexOf('Late reason') === 0 || b.charAt(0) === '[';
       });
       byKey[key] = comments;
     });

@@ -2750,7 +2750,9 @@ function submitLateReason() {
     name = typed;
     try { localStorage.setItem('esl-author-name', name); } catch (e) {}
   }
-  var body = '[' + name + '] ' + reason;
+  // Prefix with "Late reason —" so the comment reads sensibly when viewed
+  // in Jira out of timeline context. The "[Name]" tag preserves attribution.
+  var body = 'Late reason — [' + name + '] ' + reason;
 
   var btn = document.getElementById('late-reason-submit');
   btn.disabled = true;
