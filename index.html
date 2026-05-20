@@ -449,6 +449,55 @@
   .gantt-overrun { cursor: pointer; }
   .gantt-overrun:hover { z-index: 11; }
 
+  /* Late tooltip — shows on overrun bar hover (date + posted reasons) */
+  .late-tooltip {
+    position: fixed; display: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border-mid);
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    z-index: 80;
+    min-width: 220px; max-width: 360px;
+    font-size: 12px; color: var(--text-secondary);
+    pointer-events: none;
+  }
+  .late-tooltip.show { display: block; }
+  .late-tooltip-date {
+    color: var(--red); font-weight: 700;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .late-tooltip-comments {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 240px; overflow-y: auto;
+    margin-bottom: 8px;
+  }
+  .late-tooltip-comment {
+    background: var(--bg-elevated);
+    border-radius: 6px;
+    padding: 6px 8px;
+    line-height: 1.4;
+  }
+  .late-tooltip-comment-meta {
+    font-size: 10px; color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .late-tooltip-comment-body {
+    color: var(--text-primary);
+    word-break: break-word;
+  }
+  .late-tooltip-empty {
+    color: var(--text-muted); font-style: italic;
+    padding: 4px 0 8px;
+  }
+  .late-tooltip-hint {
+    font-size: 11px; color: var(--text-muted);
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+    font-style: italic;
+  }
+
   /* Late reason modal */
   .late-reason-overlay {
     position: fixed; inset: 0;
@@ -1587,11 +1636,13 @@ function buildTimeline(tasks, teamFilter) {
     function seg(left, width, extraStyle, klass, label) {
       var base = 'left:' + left + 'px;width:' + Math.max(3, width) + 'px;' + extraStyle;
       var labelHtml = label ? '<span class="bar-label">' + label + '</span>' : '';
-      // Overrun (red hatch / "Late") — click opens the Add Late Reason modal
-      // via a delegated handler. data-jira + data-task carry the context.
+      // Overrun (red hatch / "Late") — click opens the Add Late Reason
+      // modal, hover shows the late-reason tooltip (custom JS, no native
+      // title attr so the two don't fight). data-jira + data-task carry
+      // the context to the delegated handlers.
       if (klass.indexOf('gantt-overrun') >= 0 && t.epic) {
         var taskEsc = String(t.task || '').replace(/"/g, '&quot;');
-        return '<div class="' + klass + '" style="' + base + '" title="Click to add late reason"' +
+        return '<div class="' + klass + '" style="' + base + '"' +
           ' data-jira="' + t.epic + '" data-task="' + taskEsc + '">' + labelHtml + '</div>';
       }
       if (t.epicUrl) {
@@ -2709,6 +2760,14 @@ function submitLateReason() {
     .then(function(res) {
       if (res && res.ok) {
         var key = lateReasonContext.jiraKey;
+        // Optimistically append the new comment to the local task so the
+        // late tooltip reflects it immediately, without waiting for the
+        // server's 5-min cache to expire.
+        var task = ALL_TASKS && ALL_TASKS.find(function(t) { return t.epic === key; });
+        if (task) {
+          if (!Array.isArray(task.lateComments)) task.lateComments = [];
+          task.lateComments.push(res.comment || { author: name, body: body, created: new Date().toISOString() });
+        }
         closeLateReasonModal();
         showToast('Comment posted to ' + key, 'success');
       } else {
@@ -2763,6 +2822,95 @@ document.body.addEventListener('click', function(e) {
   openLateReasonModal(jira, el.getAttribute('data-task') || '');
 }, true);  // capture phase — preempts the seg() inline onclick that opens Jira
 
+// ── Late tooltip on overrun hover ──
+var lateTooltipTimer = null;
+
+function escapeHtmlBasic(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function fmtCommentDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function showLateTooltip(barEl, e) {
+  var jira = barEl.getAttribute('data-jira');
+  if (!jira || !Array.isArray(ALL_TASKS)) return;
+  var task = ALL_TASKS.find(function(t) { return t.epic === jira; });
+  if (!task) return;
+  var tt = document.getElementById('late-tooltip');
+  if (!tt) return;
+
+  var planEnd = task.end       ? fmtShort(parseDate(task.end))       : '?';
+  var actEnd  = task.actualEnd ? fmtShort(parseDate(task.actualEnd)) : '?';
+  var html = '<div class="late-tooltip-date">Late · plan ' + planEnd + ' → actual ' + actEnd + '</div>';
+
+  var comments = task.lateComments || [];
+  if (comments.length === 0) {
+    html += '<div class="late-tooltip-empty">No reasons logged yet.</div>';
+  } else {
+    html += '<div class="late-tooltip-comments">' + comments.map(function(c) {
+      var when = fmtCommentDate(c.created);
+      var meta = escapeHtmlBasic(c.author || 'Unknown') + (when ? ' · ' + when : '');
+      return '<div class="late-tooltip-comment">' +
+        '<div class="late-tooltip-comment-meta">' + meta + '</div>' +
+        '<div class="late-tooltip-comment-body">' + escapeHtmlBasic(c.body) + '</div>' +
+        '</div>';
+    }).join('') + '</div>';
+  }
+  html += '<div class="late-tooltip-hint">Click bar to add reason</div>';
+
+  tt.innerHTML = html;
+  tt.classList.add('show');
+  positionLateTooltip(e);
+}
+
+function positionLateTooltip(e) {
+  var tt = document.getElementById('late-tooltip');
+  if (!tt || !tt.classList.contains('show')) return;
+  var w = tt.offsetWidth || 280;
+  var h = tt.offsetHeight || 100;
+  var pad = 12;
+  var left = e.clientX + pad;
+  var top  = e.clientY + pad;
+  if (left + w > window.innerWidth  - 8) left = e.clientX - w - pad;
+  if (top  + h > window.innerHeight - 8) top  = e.clientY - h - pad;
+  tt.style.left = left + 'px';
+  tt.style.top  = top  + 'px';
+}
+
+function hideLateTooltip() {
+  if (lateTooltipTimer) { clearTimeout(lateTooltipTimer); lateTooltipTimer = null; }
+  var tt = document.getElementById('late-tooltip');
+  if (tt) tt.classList.remove('show');
+}
+
+document.body.addEventListener('mouseover', function(e) {
+  var el = e.target.closest && e.target.closest('.gantt-overrun');
+  if (!el) return;
+  hideLateTooltip();
+  var capturedE = e;  // freeze for delayed callback
+  lateTooltipTimer = setTimeout(function() { showLateTooltip(el, capturedE); }, 250);
+});
+document.body.addEventListener('mouseout', function(e) {
+  var el = e.target.closest && e.target.closest('.gantt-overrun');
+  if (!el) return;
+  hideLateTooltip();
+});
+document.body.addEventListener('mousemove', function(e) {
+  var el = e.target.closest && e.target.closest('.gantt-overrun');
+  if (!el) return;
+  var tt = document.getElementById('late-tooltip');
+  if (tt && tt.classList.contains('show')) positionLateTooltip(e);
+});
+
 // ESC closes the modal
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape' && lateReasonContext) closeLateReasonModal();
@@ -2795,6 +2943,9 @@ maybeAutoTour();
     </div>
   </div>
 </div>
+
+<!-- Late tooltip — anchored to overrun bar on hover, shows date + posted reasons -->
+<div class="late-tooltip" id="late-tooltip"></div>
 
 <!-- Toast container — bottom-right stack -->
 <div class="toast-container" id="toast-container"></div>

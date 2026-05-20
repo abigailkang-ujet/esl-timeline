@@ -26,6 +26,8 @@ const JIRA_FIELD_END       = 'duedate';
 const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custom field (write target for pushIdealToJira)
 const JIRA_CACHE_KEY       = 'esl-jira-live-v3';    // bump on parser/shape change
 const JIRA_CACHE_TTL       = 300;                    // 5 minutes
+const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v1';
+const JIRA_LATE_COMMENTS_CACHE_TTL = 300;            // 5 minutes
 
 // Jira 프로젝트 키 prefix → 정규화된 팀명 매핑
 // 여기 없는 prefix는 Notion/Sheets 팀값으로 fallback
@@ -123,7 +125,18 @@ function postJiraCommentFromUI(jiraKey, text) {
     if (code === 201) {
       var json = JSON.parse(resp.getContentText());
       Logger.log('[jira-comment] posted to ' + key + ' (id=' + json.id + ')');
-      return { ok: true, id: json.id, key: key };
+      // Invalidate the late-comments cache so the next render fetches fresh.
+      try { CacheService.getScriptCache().remove(JIRA_LATE_COMMENTS_CACHE_KEY); } catch (e) {}
+      return {
+        ok: true, id: json.id, key: key,
+        // Echo the comment back so the frontend can optimistically append
+        // it to its in-memory task data without waiting for a page reload.
+        comment: {
+          author: 'You',         // best-effort — Jira's display name isn't returned on POST
+          body: body,
+          created: new Date().toISOString(),
+        }
+      };
     }
     var snip = resp.getContentText().slice(0, 300);
     Logger.log('[jira-comment] HTTP ' + code + ' for ' + key + ': ' + snip);
@@ -132,6 +145,91 @@ function postJiraCommentFromUI(jiraKey, text) {
     Logger.log('[jira-comment] threw: ' + err.message);
     return { ok: false, error: 'Threw: ' + err.message };
   }
+}
+
+// ============================================================
+// Fetch late-reason comments for a set of Jira keys (parallel).
+// Returns { KEY: [{ author, body, created }, ...] }, filtered to
+// our "[Name] reason" format so noise from unrelated comments is
+// kept out. Cached 5 minutes via CacheService.
+// ============================================================
+function fetchLateCommentsFromJira_(jiraKeys) {
+  if (!jiraKeys || !jiraKeys.length) return {};
+
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(JIRA_LATE_COMMENTS_CACHE_KEY);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e) { /* fall through to fresh fetch */ }
+  }
+
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) {
+    Logger.log('[late-comments] no jiraToken — skipping fetch');
+    return {};
+  }
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  var requests = jiraKeys.map(function(key) {
+    return {
+      url: 'https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + encodeURIComponent(key) + '/comment?orderBy=created',
+      method: 'get',
+      headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    };
+  });
+
+  var byKey = {};
+  try {
+    var responses = UrlFetchApp.fetchAll(requests);
+    responses.forEach(function(resp, idx) {
+      var key = jiraKeys[idx];
+      var code = resp.getResponseCode();
+      if (code !== 200) {
+        byKey[key] = [];
+        return;
+      }
+      var json;
+      try { json = JSON.parse(resp.getContentText()); }
+      catch (e) { byKey[key] = []; return; }
+      var comments = (json.comments || []).map(function(c) {
+        return {
+          author:  (c.author && c.author.displayName) || 'Unknown',
+          body:    extractAdfText_(c.body),
+          created: c.created || '',
+        };
+      }).filter(function(c) {
+        // Only surface comments that match our late-reason convention:
+        // body must start with "[" (i.e. "[Author] reason"). Keeps the
+        // tooltip free of unrelated Jira chatter.
+        return c.body && c.body.trim().charAt(0) === '[';
+      });
+      byKey[key] = comments;
+    });
+  } catch (e) {
+    Logger.log('[late-comments] fetchAll threw: ' + e.message);
+    return {};
+  }
+
+  try { cache.put(JIRA_LATE_COMMENTS_CACHE_KEY, JSON.stringify(byKey), JIRA_LATE_COMMENTS_CACHE_TTL); }
+  catch (e) { /* cache failure is non-fatal */ }
+  Logger.log('[late-comments] fetched for ' + jiraKeys.length + ' keys');
+  return byKey;
+}
+
+// Flatten a simple Atlassian Document Format body into plain text.
+// Walks the tree, collecting any node.text leaves and joining with
+// spaces. Handles the common doc → paragraph → text shape that
+// JIRA returns for typed-in comments.
+function extractAdfText_(adf) {
+  if (!adf) return '';
+  var parts = [];
+  function walk(node) {
+    if (!node) return;
+    if (typeof node.text === 'string') parts.push(node.text);
+    if (node.content && Array.isArray(node.content)) node.content.forEach(walk);
+  }
+  walk(adf);
+  return parts.join(' ').trim();
 }
 
 // ============================================================
@@ -252,6 +350,21 @@ function buildTimelineData() {
     if (liveEntry.blocking)  t.blocking  = liveEntry.blocking;
     if (liveEntry.blockedBy) t.blockedBy = liveEntry.blockedBy;
     t.relates = liveEntry.relates || [];
+  });
+
+  // ── Late-reason comments — only for tasks whose actual end is past plan end (overrun) ──
+  // ISO yyyy-MM-dd strings compare lexically, so > works as date order here.
+  var lateKeys = [];
+  tasks.forEach(function(t) {
+    if (t.actualEnd && t.end && t.actualEnd > t.end) {
+      var k = extractJiraKey(t.epicUrl);
+      if (k) lateKeys.push(k);
+    }
+  });
+  var lateComments = fetchLateCommentsFromJira_(lateKeys);
+  tasks.forEach(function(t) {
+    var k = extractJiraKey(t.epicUrl);
+    t.lateComments = (k && lateComments[k]) ? lateComments[k] : [];
   });
 
   return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length };
