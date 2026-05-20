@@ -345,6 +345,29 @@
   .risk-High   { color: var(--red);   background: var(--red-bg);   border-color: rgba(244,112,103,0.25); }
   .risk-none   { color: var(--text-muted); }
 
+  /* T-shirt size — blue color family (distinct from Risk's red/amber/green
+     warning palette so the two never visually collide). Darker shade = bigger. */
+  .tshirt-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 4px;
+    font-size: 11px; font-weight: 700; line-height: 1.4;
+    border: 1px solid transparent; min-width: 18px; text-align: center;
+    transition: padding 0.12s ease;
+    cursor: default;
+  }
+  .tshirt-badge .tshirt-word { display: none; }
+  .tshirt-badge:hover .tshirt-letter { display: none; }
+  .tshirt-badge:hover .tshirt-word { display: inline; }
+  .tshirt-badge:hover { padding: 2px 9px; }
+  .tshirt-S  { color: #93c5fd; background: rgba(147,197,253,0.08); border-color: rgba(147,197,253,0.25); }
+  .tshirt-M  { color: #60a5fa; background: rgba(96,165,250,0.12);  border-color: rgba(96,165,250,0.30); }
+  .tshirt-L  { color: #3b82f6; background: rgba(59,130,246,0.16);  border-color: rgba(59,130,246,0.35); }
+  .tshirt-XL { color: #2563eb; background: rgba(37,99,235,0.20);   border-color: rgba(37,99,235,0.40); }
+  .tshirt-none { color: var(--text-muted); }
+  body.light-mode .tshirt-S  { color: #2563eb; }
+  body.light-mode .tshirt-M  { color: #1d4ed8; }
+  body.light-mode .tshirt-L  { color: #1e40af; }
+  body.light-mode .tshirt-XL { color: #1e3a8a; }
+
   .date-cell { color: var(--text-secondary); font-size: 13px; font-variant-numeric: tabular-nums; }
   .at-risk td.info-col { background: rgba(244,112,103,0.04) !important; }
   .at-risk .task-name-cell a, .at-risk .task-name-cell { color: var(--red); }
@@ -1560,6 +1583,7 @@ function buildTimeline(tasks, teamFilter) {
     '<th class="info-col sticky-task" style="width:260px">Task' + tip('Task name from Jira \u2192 Notion \u2014 synced via Realistic Scenario sheet') + '</th>' +
     '<th class="info-col" data-col="prd" style="width:50px" title="Click to hide">PRD' + tip('PRD status from Notion: \u2713=done, Draft, Rev=In Review, N=missing, \u2212=N/A') + '</th>' +
     '<th class="info-col" data-col="risk" style="width:50px" title="Click to hide">Risk' + tip('Risk factor \u2014 from Realistic Scenario sheet (Low / Medium / High)') + '</th>' +
+    '<th class="info-col" data-col="size" style="width:50px" title="Click to hide">Size' + tip('T-shirt size estimation in weeks \u2014 from Overall sheet (Small / Medium / Large / Extra Large). Hover any chip for the full label.') + '</th>' +
     '<th class="info-col" data-col="start" style="width:55px" title="Click to hide"><span class="hdr-pre">Plan</span>Start' + tip('Planned start date \u2014 from Realistic Scenario sheet') + '</th>' +
     '<th class="info-col" data-col="end" style="width:55px" title="Click to hide"><span class="hdr-pre">Plan</span>End' + tip('Planned end date \u2014 from Realistic Scenario sheet') + '</th>' +
     (showActual ? '<th class="info-col" data-col="actStart" style="width:55px"><span class="hdr-pre">Act</span>Start' + tip('Actual start date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not started yet.') + '</th><th class="info-col" data-col="actEnd" style="width:55px"><span class="hdr-pre">Act</span>End' + tip('Actual end date \u2014 from Jira (synced via Notion). \u2018-\u2019 if not finished yet.') + '</th>' : '') +
@@ -1745,6 +1769,7 @@ function buildTimeline(tasks, teamFilter) {
       '<td class="info-col sticky-task task-name-cell">' + link + '</td>' +
       '<td class="info-col" data-col="prd">' + prdBadge + '</td>' +
       '<td class="info-col" data-col="risk">' + buildRiskBadge(t.risk) + '</td>' +
+      '<td class="info-col" data-col="size">' + buildTshirtBadge(t.engSize) + '</td>' +
       '<td class="info-col date-cell" data-col="start">' + fmtShort(sd) + '</td>' +
       '<td class="info-col date-cell" data-col="end">' + fmtShort(ed) + '</td>' +
       (showActual ? '<td class="info-col date-cell" data-col="actStart">' + fmtShort(parseDate(t.actualStart)) + '</td><td class="info-col date-cell" data-col="actEnd">' + fmtShort(parseDate(t.actualEnd)) + '</td>' : '') +
@@ -1774,8 +1799,11 @@ function buildTimeline(tasks, teamFilter) {
       if (!teamTasks.length) return;
       var color = TEAM_COLORS[team] || '#64748b';
       // Lead/PM moved out of per-task columns into here (2026-05-07).
-      // Base colspan dropped from 10 to 8; showExtra and showActual modifiers unchanged.
-      var teamColspan = 8 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
+      // Base colspan dropped from 10 to 8 (refactor 2026-05-07), then bumped
+      // to 9 (2026-05-20) when the T-shirt Size column was added between Risk
+      // and Plan Start. showExtra adds Alloc+Status (2); showActual adds Act
+      // Start + Act End (2).
+      var teamColspan = 9 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
       // Continue the Today line through the team-header row so it doesn't
       // visibly break at every team boundary.
       var teamTodayLine = '';
@@ -2132,6 +2160,20 @@ function scheduleColor(s) {
   if (s === 'On Track')   return 'var(--green)';
   if (s === 'Done')       return 'var(--text-muted)';
   return '#94a3b8';
+}
+
+function buildTshirtBadge(size) {
+  if (!size) return '<span class="tshirt-none">-</span>';
+  var s = String(size).trim();
+  var fullWord = { S: 'Small', M: 'Medium', L: 'Large', XL: 'Extra Large' }[s];
+  if (fullWord) {
+    return '<span class="tshirt-badge tshirt-' + s + '">' +
+      '<span class="tshirt-letter">' + s + '</span>' +
+      '<span class="tshirt-word">' + fullWord + '</span>' +
+      '</span>';
+  }
+  // Unknown value — fall back to plain text so we don't lose data.
+  return '<span class="tshirt-none" title="' + s + '">' + s + '</span>';
 }
 
 function buildRiskBadge(risk) {
