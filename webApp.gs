@@ -82,6 +82,74 @@ function doGet(e) {
 }
 
 // ============================================================
+// Web App POST entry — currently for posting late-reason comments
+// to Jira. Body is parsed from e.postData.contents (frontend sends
+// JSON as text/plain to dodge CORS preflight).
+// ============================================================
+function doPost(e) {
+  try {
+    var body = (e && e.postData) ? JSON.parse(e.postData.contents) : {};
+    if (body.action === 'postJiraComment') {
+      return _handlePostJiraComment_(body);
+    }
+    return _jsonResp_({ ok: false, error: 'Unknown action: ' + (body.action || '(none)') });
+  } catch (err) {
+    return _jsonResp_({ ok: false, error: 'doPost: ' + err.message });
+  }
+}
+
+function _handlePostJiraComment_(body) {
+  var key  = String(body.jiraKey || '').trim();
+  var text = String(body.text    || '').trim();
+  if (!key)  return _jsonResp_({ ok: false, error: 'jiraKey required' });
+  if (!text) return _jsonResp_({ ok: false, error: 'text required' });
+
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) return _jsonResp_({ ok: false, error: 'jiraToken not set in Script Properties' });
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  // Jira REST v3 comment body must be in Atlassian Document Format (ADF).
+  var payload = {
+    body: {
+      type: 'doc', version: 1,
+      content: [{
+        type: 'paragraph',
+        content: [{ type: 'text', text: text }]
+      }]
+    }
+  };
+
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + encodeURIComponent(key) + '/comment',
+      {
+        method: 'post', contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+        muteHttpExceptions: true,
+      }
+    );
+    var code = resp.getResponseCode();
+    if (code === 201) {
+      var json = JSON.parse(resp.getContentText());
+      Logger.log('[jira-comment] posted to ' + key + ' (id=' + json.id + ')');
+      return _jsonResp_({ ok: true, id: json.id, key: key });
+    }
+    var snip = resp.getContentText().slice(0, 300);
+    Logger.log('[jira-comment] HTTP ' + code + ' for ' + key + ': ' + snip);
+    return _jsonResp_({ ok: false, error: 'Jira HTTP ' + code + ': ' + snip });
+  } catch (err) {
+    Logger.log('[jira-comment] fetch threw: ' + err.message);
+    return _jsonResp_({ ok: false, error: 'Fetch threw: ' + err.message });
+  }
+}
+
+function _jsonResp_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================
 // Core: join Realistic Scenario + Notion_raw (both from Sheets)
 // ============================================================
 function buildTimelineData() {

@@ -445,6 +445,113 @@
   body.light-mode .gantt-multi.scen-actual > .bar-label { background-color: #64748b; }
   .gantt-multi:hover .bar-label { opacity: 1; }
 
+  /* Overrun (Late) bars are clickable — open the Add Late Reason modal */
+  .gantt-overrun { cursor: pointer; }
+  .gantt-overrun:hover { z-index: 11; }
+
+  /* Late reason modal */
+  .late-reason-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    z-index: 100;
+    display: none;
+    align-items: center; justify-content: center;
+  }
+  .late-reason-overlay.show { display: flex; }
+  .late-reason-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border-mid);
+    border-radius: 12px;
+    padding: 22px 24px 18px;
+    width: 460px; max-width: 90vw;
+    box-shadow: 0 14px 48px rgba(0, 0, 0, 0.45);
+  }
+  .late-reason-title {
+    font-size: 15px; font-weight: 700; color: var(--text-primary);
+    margin-bottom: 3px;
+  }
+  .late-reason-subtitle {
+    font-size: 12px; color: var(--text-muted);
+    margin-bottom: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+  .late-reason-label {
+    display: block; font-size: 10px; font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .late-reason-modal input,
+  .late-reason-modal textarea {
+    width: 100%; padding: 8px 11px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+    margin-bottom: 12px;
+    box-sizing: border-box;
+    outline: none;
+    resize: vertical;
+    transition: border-color 0.12s ease;
+  }
+  .late-reason-modal input:focus,
+  .late-reason-modal textarea:focus { border-color: var(--blue); }
+  .late-reason-status {
+    font-size: 12px; min-height: 18px;
+    margin-bottom: 8px;
+  }
+  .late-reason-status.error { color: var(--red); }
+  .late-reason-status.info  { color: var(--text-secondary); }
+  .late-reason-status.ok    { color: var(--green); }
+  .late-reason-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+  }
+  .late-reason-btn-primary,
+  .late-reason-btn-cancel {
+    padding: 7px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+    border: 1px solid transparent;
+    transition: filter 0.12s ease, border-color 0.12s ease;
+  }
+  .late-reason-btn-primary { background: var(--blue); color: white; }
+  .late-reason-btn-primary:hover { filter: brightness(1.1); }
+  .late-reason-btn-primary:disabled { opacity: 0.5; cursor: wait; }
+  .late-reason-btn-cancel {
+    background: transparent; color: var(--text-secondary);
+    border-color: var(--border-mid);
+  }
+  .late-reason-btn-cancel:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+  /* Toast notifications (bottom-right stack) */
+  .toast-container {
+    position: fixed; bottom: 24px; right: 24px;
+    z-index: 200;
+    display: flex; flex-direction: column-reverse;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .toast {
+    background: var(--bg-card);
+    border: 1px solid var(--border-mid);
+    color: var(--text-primary);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    min-width: 220px; max-width: 380px;
+    pointer-events: auto;
+    animation: toast-in 0.18s ease-out;
+  }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  @keyframes toast-in {
+    from { transform: translateX(40px); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+  }
+
   /* Always-on letter badges at the left of each bar */
   .gantt-lane-badge {
     position: absolute; z-index: 11;
@@ -784,23 +891,18 @@ let lastUpdatedAt = '';
 // When >1 selected, the Gantt renders stacked sub-bars (one per scenario).
 // When exactly 1 selected, behaves like the original single-scenario view
 // (plan + actual split, overrun hatching, etc. — all richer rendering).
-let selectedScenarios = (function() {
-  try {
-    var stored = localStorage.getItem('esl-scenarios');
-    if (stored) {
-      var parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    }
-    // Migrate single-scenario key from prior version if present
-    var oldVal = localStorage.getItem('esl-scenario');
-    if (oldVal) return [oldVal];
-  } catch (e) {}
-  return ['realistic'];
-})();
+//
+// Each page load starts with ONLY Realistic selected (no localStorage
+// restore). Users can toggle into multi-select per session, but a fresh
+// load is always single-scenario Realistic.
+let selectedScenarios = ['realistic'];
+
+// Clear any legacy localStorage keys so they don't accidentally re-hydrate later.
+try { localStorage.removeItem('esl-scenarios'); } catch (e) {}
+try { localStorage.removeItem('esl-scenario');  } catch (e) {}
 
 function saveScenarios() {
-  try { localStorage.setItem('esl-scenarios', JSON.stringify(selectedScenarios)); }
-  catch (e) {}
+  // No-op — selection is intentionally not persisted (see comment above).
 }
 
 // "Primary" scenario drives non-Gantt computations: Schedule badge, Past Ideal
@@ -1485,6 +1587,13 @@ function buildTimeline(tasks, teamFilter) {
     function seg(left, width, extraStyle, klass, label) {
       var base = 'left:' + left + 'px;width:' + Math.max(3, width) + 'px;' + extraStyle;
       var labelHtml = label ? '<span class="bar-label">' + label + '</span>' : '';
+      // Overrun (red hatch / "Late") — click opens the Add Late Reason modal
+      // via a delegated handler. data-jira + data-task carry the context.
+      if (klass.indexOf('gantt-overrun') >= 0 && t.epic) {
+        var taskEsc = String(t.task || '').replace(/"/g, '&quot;');
+        return '<div class="' + klass + '" style="' + base + '" title="Click to add late reason"' +
+          ' data-jira="' + t.epic + '" data-task="' + taskEsc + '">' + labelHtml + '</div>';
+      }
       if (t.epicUrl) {
         return '<div class="' + klass + '" style="' + base + 'cursor:pointer;" onclick="window.open(\'' + t.epicUrl + '\',\'_blank\')">' + labelHtml + '</div>';
       }
@@ -2537,6 +2646,126 @@ function exportTimeline(format) {
   }
 }
 
+// ── Late reason modal (opens from gantt-overrun click via delegated handler) ──
+var lateReasonContext = null;  // { jiraKey, taskName }
+
+function openLateReasonModal(jiraKey, taskName) {
+  if (!jiraKey) return;
+  lateReasonContext = { jiraKey: jiraKey, taskName: taskName || '' };
+  document.getElementById('late-reason-task').textContent = '[' + jiraKey + ']' + (taskName ? '  ' + taskName : '');
+  document.getElementById('late-reason-text').value = '';
+  setLateReasonStatus('', '');
+  document.getElementById('late-reason-submit').disabled = false;
+  // Author name — saved once in localStorage, then auto-prefixed thereafter
+  var savedName = '';
+  try { savedName = localStorage.getItem('esl-author-name') || ''; } catch (e) {}
+  var nameRow = document.getElementById('late-reason-name-row');
+  if (savedName) {
+    nameRow.style.display = 'none';
+  } else {
+    nameRow.style.display = '';
+    document.getElementById('late-reason-name').value = '';
+  }
+  document.getElementById('late-reason-overlay').classList.add('show');
+  setTimeout(function() {
+    var firstInput = savedName
+      ? document.getElementById('late-reason-text')
+      : document.getElementById('late-reason-name');
+    if (firstInput) firstInput.focus();
+  }, 60);
+}
+
+function closeLateReasonModal() {
+  document.getElementById('late-reason-overlay').classList.remove('show');
+  lateReasonContext = null;
+}
+
+function setLateReasonStatus(msg, type) {
+  var el = document.getElementById('late-reason-status');
+  el.textContent = msg || '';
+  el.className = 'late-reason-status' + (type ? ' ' + type : '');
+}
+
+function submitLateReason() {
+  if (!lateReasonContext) return;
+  var reason = document.getElementById('late-reason-text').value.trim();
+  if (!reason) { setLateReasonStatus('Please write a reason.', 'error'); return; }
+
+  var name = '';
+  try { name = localStorage.getItem('esl-author-name') || ''; } catch (e) {}
+  if (!name) {
+    var typed = document.getElementById('late-reason-name').value.trim();
+    if (!typed) { setLateReasonStatus('Please enter your name.', 'error'); return; }
+    name = typed;
+    try { localStorage.setItem('esl-author-name', name); } catch (e) {}
+  }
+  var body = '[' + name + '] ' + reason;
+
+  var btn = document.getElementById('late-reason-submit');
+  btn.disabled = true;
+  setLateReasonStatus('Posting to Jira…', 'info');
+
+  postJiraComment(lateReasonContext.jiraKey, body)
+    .then(function(res) {
+      if (res && res.ok) {
+        var key = lateReasonContext.jiraKey;
+        closeLateReasonModal();
+        showToast('Comment posted to ' + key, 'success');
+      } else {
+        var msg = (res && res.error) || 'Unknown error';
+        setLateReasonStatus('Failed: ' + msg, 'error');
+        btn.disabled = false;
+      }
+    })
+    .catch(function(err) {
+      setLateReasonStatus('Network error: ' + err.message, 'error');
+      btn.disabled = false;
+    });
+}
+
+function postJiraComment(jiraKey, text) {
+  // Send as text/plain to dodge CORS preflight; server reads e.postData.contents.
+  // window.location.href on the Apps Script webapp ends in /exec, which is the
+  // same endpoint that handles doPost.
+  return fetch(window.location.href.split('?')[0], {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'postJiraComment', jiraKey: jiraKey, text: text }),
+  }).then(function(r) { return r.json(); });
+}
+
+// ── Toast notifications ──
+function showToast(msg, type, durationMs) {
+  var container = document.getElementById('toast-container');
+  if (!container) return;
+  var el = document.createElement('div');
+  el.className = 'toast' + (type ? ' ' + type : '');
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(function() {
+    el.style.transition = 'opacity 0.2s ease';
+    el.style.opacity = '0';
+    setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
+  }, durationMs || 3500);
+}
+
+// Delegated click handler for gantt-overrun (red hatched Late segments).
+// Lives on body so it survives every renderAll() rerender of the timeline.
+document.body.addEventListener('click', function(e) {
+  var el = e.target.closest && e.target.closest('.gantt-overrun');
+  if (!el) return;
+  var jira = el.getAttribute('data-jira');
+  if (!jira) return;
+  e.preventDefault();
+  e.stopPropagation();
+  openLateReasonModal(jira, el.getAttribute('data-task') || '');
+}, true);  // capture phase — preempts the seg() inline onclick that opens Jira
+
+// ESC closes the modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && lateReasonContext) closeLateReasonModal();
+});
+
 loadData();
 maybeAutoTour();
 </script>
@@ -2545,5 +2774,28 @@ maybeAutoTour();
   <a href="mailto:abigail.kang@ujet.cx">abigail.kang@ujet.cx</a>
 </div>
 </div>
+
+<!-- Late reason modal — hidden by default, opened from gantt-overrun click -->
+<div class="late-reason-overlay" id="late-reason-overlay" onclick="if(event.target===this)closeLateReasonModal()">
+  <div class="late-reason-modal" role="dialog" aria-labelledby="late-reason-title">
+    <div class="late-reason-title" id="late-reason-title">Add late reason</div>
+    <div class="late-reason-subtitle" id="late-reason-task"></div>
+    <div id="late-reason-name-row" style="display:none">
+      <label class="late-reason-label" for="late-reason-name">Your name (saved for next time)</label>
+      <input type="text" id="late-reason-name" placeholder="e.g. Abigail" maxlength="40">
+    </div>
+    <label class="late-reason-label" for="late-reason-text">Reason</label>
+    <textarea id="late-reason-text" rows="3" maxlength="500" placeholder="Briefly explain why this task is late…"></textarea>
+    <div class="late-reason-status" id="late-reason-status"></div>
+    <div class="late-reason-actions">
+      <button class="late-reason-btn-cancel" onclick="closeLateReasonModal()">Cancel</button>
+      <button class="late-reason-btn-primary" id="late-reason-submit" onclick="submitLateReason()">Post to Jira</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container — bottom-right stack -->
+<div class="toast-container" id="toast-container"></div>
+
 </body>
 </html>
