@@ -208,7 +208,16 @@ function fetchAllNotionPages_(token, dbId) {
       }
     );
 
-    var json = JSON.parse(response.getContentText());
+    var code = response.getResponseCode();
+    if (code !== 200) {
+      throw new Error('Notion API HTTP ' + code + ' (page ' + pageNum + '): ' + response.getContentText().slice(0, 300));
+    }
+
+    var json;
+    try { json = JSON.parse(response.getContentText()); }
+    catch (parseErr) {
+      throw new Error('Notion API JSON parse failed (page ' + pageNum + '): ' + parseErr.message);
+    }
 
     if (json.object === 'error') {
       throw new Error('Notion API error (page ' + pageNum + '): ' + json.message);
@@ -769,8 +778,8 @@ function testSyncNotionToSheets() {
 
     Logger.log('=== testSyncNotionToSheets: COMPLETE ===');
     Logger.log('  Total Notion pages fetched : ' + result.totalFetched);
-    Logger.log('  In-place updates           : ' + result.matched);
-    Logger.log('  New rows appended          : ' + result.added);
+    Logger.log('  Rows written               : ' + result.rowsWritten);
+    Logger.log('  Duplicates                 : ' + result.duplicates);
     Logger.log('  Skipped (no name)          : ' + result.skipped);
     Logger.log('  Elapsed time               : ' + elapsed + 's');
 

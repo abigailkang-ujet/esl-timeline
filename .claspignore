@@ -1,0 +1,7 @@
+.git/**
+.claude/**
+docs/**
+.gitignore
+CLAUDE.md
+timeline.html
+notion-embed.html
