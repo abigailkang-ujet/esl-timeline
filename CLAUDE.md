@@ -46,25 +46,37 @@ Sheets schema migrated from "row-position + task-name" joins to "jira_url" joins
 
 ---
 
-## Data Architecture
+## Data Architecture (hybrid, refactored 2026-05-21)
 
 ```
-Jira (auto-sync) ──→ Notion "ESL Project list" DB
-                              ↓ syncNotionToSheets.gs (clear+dump, daily 7 AM trigger)
-                      Google Sheets "Notion_raw" tab (PK: col J = JIRA URL)
-                              ↓ XLOOKUP by jira_url
-                      Google Sheets "Overall" tab (PK: col A = jira_url)
-                              ↓ XLOOKUP by jira_url
-Google Sheets "Realistic Scenario - Tasks Details (S2)" ──→ webApp.gs (join on JIRA URL)
-                                                                      ↓
-Jira REST (status / customfield_11014 / duedate) ──→ webApp.gs override (5-min cache, 2026-05-06)
-                                                                      ↓
-                                                              index.html (serves Gantt)
+Jira REST ──── fetchJiraLive (5-min cache) ──────────→ webApp.gs → index.html
+               status, summary, dates, T-shirt,          ↑
+               dependencies, statusChangedAt/resolvedAt   │
+                                                          │
+Notion API ── fetchNotionDirect (10-min cache) ──────────┘
+               priority, PRD state, PM/PMO, strategic,
+               comment, kickoff links, prelim date
+
+Google Sheets scenario tabs ─────────────────────────────┘
+               lead, allocation, risk, scenario dates/effort,
+               ideal delivery, notes, release
+
+Google Sheets Notion_raw (daily 7AM backup) ─── fallback when Notion API unavailable
 ```
 
 All joins are by `jira_url`. Row order in any tab is irrelevant — manual data is anchored by PK.
 
-**Live Jira override (2026-05-06; expanded 2026-05-07)**: `webApp.gs` calls Jira REST at render time (cached 5 min via `CacheService`) to refresh `t.status`, `t.actualStart`, `t.actualEnd`, plus `t.statusChangedAt` / `t.resolvedAt` (status-fallback timestamps for the Gantt bar) and `t.blocking` / `t.blockedBy` / `t.relates` (parsed from `issuelinks` for the dependency arrows). Every other field still flows through the Notion → Sheets daily path. Failure of the Jira fetch (no token, non-200, throw) returns an empty map; tasks fall back to their Notion-synced values without an exception (Relates simply stays empty since Notion has no equivalent). Token lives in Apps Script Script Properties under key `jiraToken`. Specs: `docs/superpowers/specs/2026-05-06-jira-live-sync-design.md`, `2026-05-07-jira-issuelinks-dependencies-design.md`.
+**Data source priority per field** (2026-05-21):
+- **Jira live (5-min cache)**: status, actualStart, actualEnd, statusChangedAt, resolvedAt, engSize (T-shirt), blocking, blockedBy, relates, summary → `t.requirement`
+- **Notion direct (10-min cache)**: priority, PRD state, PRD URL, strategic, PM/PMO owner, PM size, comment, prelim date, kickoff link/notes, team (fallback after epic prefix)
+- **Sheets scenario tabs**: lead, allocation, headcount, risk, start/end (plan), effort, ideal delivery, notes, release, ccaipRelease
+- **Fallback chain for Notion fields**: Notion API direct → Sheets Notion_raw tab (daily sync) → empty
+
+**`fetchNotionDirect()` (2026-05-21)**: calls Notion API at render time (cached 10 min). Reuses `fetchAllNotionPages_`, `buildPageIdToJiraKeyMap_`, and all `notion*_` extractors from `syncNotionToSheets.gs`. Returns `{ byUrl, byName }` with identical entry shape to `buildNotionIndex()`. On failure (no token, HTTP error, throw) returns `null` → `buildNotionIndex(ss)` takes over as Sheets fallback. Debug endpoint (`?debug=1`) reports `notionSource: "api"` or `"sheets"`.
+
+**`syncNotionToSheets.gs` daily sync continues** as backup: populates Notion_raw for XLOOKUP formulas in Overall/Realistic tabs, `ensureOverallAnchors()`, `compareSizesNotionVsJira()`, and as tertiary data fallback.
+
+**Jira live (5-min cache)**: `fetchJiraLive` fetches status, summary, start/end dates, T-shirt size, statuscategorychangedate, resolutiondate, and issuelinks (Blocks + Relates). Tokens: `jiraToken` + `notionToken` in Script Properties.
 
 ---
 

@@ -1,13 +1,17 @@
 /**
  * ESL Timeline — Apps Script Web App
  * ============================================================
- * Data sources:
- *   1. Google Sheets "Realistic Scenario - Tasks Details (S2)" → timeline dates, effort, allocation
- *   2. Google Sheets "Notion_raw" tab → all Notion fields (kept fresh by syncNotionToSheets.gs)
+ * Data sources (hybrid architecture, 2026-05-21):
+ *   1. Jira REST API (5-min cache)  → status, dates, T-shirt, dependencies
+ *   2. Notion API direct (10-min cache) → priority, PRD, PM/PMO, strategic, etc.
+ *   3. Google Sheets scenario tabs   → manual planning data (dates, effort, risk, allocation)
+ *   4. Google Sheets Notion_raw tab  → fallback when Notion API is unavailable
  *
  * Flow:
- *   syncNotionToSheets.gs  →  writes Notion_raw tab  (run manually or on schedule)
- *   doGet()                →  reads both tabs, joins on JIRA URL, serves HTML
+ *   doGet() → reads Sheets scenario tabs + fetches Notion API direct + Jira live
+ *           → joins on JIRA URL, serves HTML
+ *   syncNotionToSheets.gs still runs daily as backup (populates Notion_raw for
+ *   XLOOKUP formulas in Overall/Realistic tabs and as tertiary data fallback).
  *
  * Deployment:
  *   Apps Script → Deploy → Web App → Execute as: Me, Access: Anyone
@@ -25,10 +29,14 @@ const JIRA_FIELD_START     = 'customfield_11014';   // Jira Start Date custom fi
 const JIRA_FIELD_END       = 'duedate';
 const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custom field (write target for pushIdealToJira)
 const JIRA_FIELD_TSHIRT    = 'customfield_11190';   // Jira T-shirt size estimation (compared against Notion Eng Size)
-const JIRA_CACHE_KEY       = 'esl-jira-live-v4';    // bump on parser/shape change
+const JIRA_CACHE_KEY       = 'esl-jira-live-v5';    // bump on parser/shape change (v5: added summary)
 const JIRA_CACHE_TTL       = 300;                    // 5 minutes
 const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v1';
 const JIRA_LATE_COMMENTS_CACHE_TTL = 300;            // 5 minutes
+
+// ── Notion direct API fetch (bypasses Sheets, 10-min cache) ──
+const NOTION_CACHE_KEY = 'esl-notion-direct-v1';
+const NOTION_CACHE_TTL = 600;                        // 10 minutes
 
 // Jira 프로젝트 키 prefix → 정규화된 팀명 매핑
 // 여기 없는 prefix는 Notion/Sheets 팀값으로 fallback
@@ -53,7 +61,7 @@ function doGet(e) {
     try {
       const data = buildTimelineData();
       return ContentService
-        .createTextOutput(JSON.stringify({ ok: true, tasks: data.tasks.length }))
+        .createTextOutput(JSON.stringify({ ok: true, tasks: data.tasks.length, notionSource: data.notionSource }))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (err) {
       return ContentService
@@ -395,15 +403,21 @@ function _extractTshirtValue_(field) {
 }
 
 // ============================================================
-// Core: join Realistic Scenario + Notion_raw (both from Sheets)
+// Core: join Scenario Sheets + Notion (direct API or Sheets fallback) + Jira live
 // ============================================================
 function buildTimelineData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  const rsRows                  = readSheet(ss, REALISTIC_TAB);
-  const { byUrl, byName }       = buildNotionIndex(ss);
-  const optimisticByUrl         = buildScenarioIndex(ss, OPTIMISTIC_TAB);
-  const pessimistByUrl          = buildScenarioIndex(ss, PESSIMIST_TAB);
+  const rsRows            = readSheet(ss, REALISTIC_TAB);
+  const optimisticByUrl   = buildScenarioIndex(ss, OPTIMISTIC_TAB);
+  const pessimistByUrl    = buildScenarioIndex(ss, PESSIMIST_TAB);
+
+  // Notion: try direct API first (10-min cache), fall back to Sheets Notion_raw tab
+  var notionDirect = fetchNotionDirect();
+  var notionData   = notionDirect || buildNotionIndex(ss);
+  var byUrl        = notionData.byUrl;
+  var byName       = notionData.byName;
+  var notionSource = notionDirect ? 'api' : 'sheets';
 
   const tasks = [];
   rsRows.forEach(row => {
@@ -503,6 +517,7 @@ function buildTimelineData() {
     const liveEntry = live[key];
     if (!liveEntry) return;              // Jira didn't return this key — keep Notion data
     if (liveEntry.status) t.status = liveEntry.status;
+    if (liveEntry.summary) t.requirement = liveEntry.summary;
     t.actualStart     = liveEntry.start || '';
     t.actualEnd       = liveEntry.end   || '';
     t.statusChangedAt = liveEntry.statusChangedAt || '';
@@ -533,7 +548,7 @@ function buildTimelineData() {
     t.lateComments = (k && lateComments[k]) ? lateComments[k] : [];
   });
 
-  return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length };
+  return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length, notionSource: notionSource };
 }
 
 // ============================================================
@@ -577,7 +592,7 @@ function fetchJiraLive(jiraKeys) {
   var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search/jql';
   var bodyJson = JSON.stringify({
     jql: jql,
-    fields: ['status', JIRA_FIELD_START, JIRA_FIELD_END, JIRA_FIELD_TSHIRT,
+    fields: ['status', 'summary', JIRA_FIELD_START, JIRA_FIELD_END, JIRA_FIELD_TSHIRT,
              'statuscategorychangedate', 'resolutiondate', 'issuelinks'],
     maxResults: 200
   });
@@ -602,6 +617,7 @@ function fetchJiraLive(jiraKeys) {
       var f = i.fields || {};
       var entry = {
         status:          (f.status && f.status.name) || '',
+        summary:         f.summary || '',
         start:           f[JIRA_FIELD_START] || '',
         end:             f[JIRA_FIELD_END]   || '',
         tshirt:          _extractTshirtValue_(f[JIRA_FIELD_TSHIRT]),
@@ -643,6 +659,87 @@ function fetchJiraLive(jiraKeys) {
 
   try { cache.put(JIRA_CACHE_KEY, JSON.stringify(byKey), JIRA_CACHE_TTL); } catch (e) { /* cache failure is non-fatal */ }
   return byKey;
+}
+
+// ============================================================
+// Notion direct API fetch (bypasses Sheets Notion_raw tab)
+// ============================================================
+// Returns { byUrl, byName } with the same entry shape as buildNotionIndex(),
+// or null on any failure (no token, API error, network throw).
+// On null, buildTimelineData() falls back to buildNotionIndex() (Sheets).
+//
+// Reuses functions from syncNotionToSheets.gs (same Apps Script project):
+//   fetchAllNotionPages_, buildPageIdToJiraKeyMap_, notionTitle_, notionSelect_,
+//   notionTextOrSelect_, notionUrl_, notionPerson_, notionCheckboxOrSelect_,
+//   notionDate_, notionDateRange_, notionRelation_, notionText_, notionSelectOrMulti_
+
+function fetchNotionDirect() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(NOTION_CACHE_KEY);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e) { /* fall through */ }
+  }
+
+  var token = PropertiesService.getScriptProperties().getProperty('notionToken');
+  if (!token) {
+    Logger.log('[notion-direct] no notionToken — falling back to Sheets');
+    return null;
+  }
+
+  try {
+    var pages = fetchAllNotionPages_(token, NOTION_DB_ID);
+    var pageIdMap = buildPageIdToJiraKeyMap_(pages);
+    var byUrl  = {};
+    var byName = {};
+
+    pages.forEach(function(page) {
+      var props   = page.properties || {};
+      var jiraUrl = notionUrl_(props['JIRA']);
+      var dateRange = notionDateRange_(props['Start-End Date']);
+
+      // Resolve relation page IDs to Jira keys
+      var blockedByIds = notionRelation_(props['Blocked by']);
+      var blockingIds  = notionRelation_(props['Blocking']);
+      var blockedByKeys = blockedByIds.map(function(id) { return pageIdMap[id] || ''; }).filter(Boolean);
+      var blockingKeys  = blockingIds.map(function(id) { return pageIdMap[id] || ''; }).filter(Boolean);
+
+      var entry = {
+        requirement:  notionTitle_(props['Requirement']),
+        priority:     notionSelect_(props['Priority']),
+        strategic:    notionCheckboxOrSelect_(props['Strategic']),
+        status:       notionSelect_(props['Status']),
+        pmSize:       notionSelect_(props['PM Size']),
+        prd:          notionTextOrSelect_(props['PRD (Done? Y/N)']),
+        engSize:      notionSelect_(props['Eng Size']),
+        team:         notionSelectOrMulti_(props['Team']),
+        comment:      notionText_(props['Comment']),
+        pm:           notionPerson_(props['PM Owner']),
+        pmo:          notionPerson_(props['PMO Owner']),
+        prelimDate:   notionDate_(props['Prelim. Committed Date']),
+        actualStart:  dateRange.start || '',
+        actualEnd:    dateRange.end   || '',
+        kickoffLink:  notionText_(props['Kickoff Meeting Link']),
+        kickoffNotes: notionText_(props['Kickoff Meeting Notes']),
+        prdUrl:       notionUrl_(props['PRD URL']),
+        blockedBy:    blockedByKeys,
+        blocking:     blockingKeys,
+      };
+
+      if (jiraUrl && jiraUrl.startsWith('http')) byUrl[jiraUrl] = entry;
+      if (entry.requirement) byName[entry.requirement] = entry;
+    });
+
+    var result = { byUrl: byUrl, byName: byName };
+    Logger.log('[notion-direct] fetched ' + pages.length + ' pages, ' +
+               Object.keys(byUrl).length + ' by URL, ' +
+               Object.keys(byName).length + ' by name');
+
+    try { cache.put(NOTION_CACHE_KEY, JSON.stringify(result), NOTION_CACHE_TTL); } catch (e) { /* non-fatal */ }
+    return result;
+  } catch (e) {
+    Logger.log('[notion-direct] fetch threw: ' + e.message + ' — falling back to Sheets');
+    return null;
+  }
 }
 
 // ============================================================
