@@ -31,7 +31,7 @@ const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custo
 const JIRA_FIELD_TSHIRT    = 'customfield_11190';   // Jira T-shirt size estimation (compared against Notion Eng Size)
 const JIRA_CACHE_KEY       = 'esl-jira-live-v5';    // bump on parser/shape change (v5: added summary)
 const JIRA_CACHE_TTL       = 300;                    // 5 minutes
-const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v1';
+const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v2';  // bumped 2026-05-26 (filter widened + invisible-char strip)
 const JIRA_LATE_COMMENTS_CACHE_TTL = 300;            // 5 minutes
 
 // ── Notion direct API fetch (bypasses Sheets, 10-min cache) ──
@@ -312,11 +312,24 @@ function fetchLateCommentsFromJira_(jiraKeys) {
         //   - current : "Note (late reason, etc) — [Author] …"
         //   - prior   : "Late reason — [Author] …"
         //   - oldest  : "[Author] …"
+        // Plus a safety-net catch for any "[Word]" tag appearing in the
+        // first ~30 chars — covers comments whose body picked up a
+        // prefix from ADF artifacts (mention, emoji, etc.) but still
+        // carries our [Name] attribution. Anything excluded is logged
+        // so missing-from-tooltip cases are diagnosable from Executions.
         if (!c.body) return false;
         var b = c.body.trim();
-        return b.indexOf('Note (late reason') === 0
-            || b.indexOf('Late reason') === 0
-            || b.charAt(0) === '[';
+        var first40 = b.slice(0, 40);
+        var hasTagEarly = /\[[^\]\s]/.test(first40);
+        var match = b.indexOf('Note (late reason') === 0
+                 || b.indexOf('Late reason') === 0
+                 || b.charAt(0) === '['
+                 || hasTagEarly;
+        if (!match) {
+          Logger.log('[late-comments] skipped (' + key + '/' + (c.id || '?') + '): "' +
+            b.slice(0, 80).replace(/\n/g, '\\n') + '"');
+        }
+        return match;
       });
       byKey[key] = comments;
     });
@@ -334,7 +347,10 @@ function fetchLateCommentsFromJira_(jiraKeys) {
 // Flatten a simple Atlassian Document Format body into plain text.
 // Walks the tree, collecting any node.text leaves and joining with
 // spaces. Handles the common doc → paragraph → text shape that
-// JIRA returns for typed-in comments.
+// JIRA returns for typed-in comments. Also strips invisible / zero-
+// width / BOM characters that can sneak in via Confluence copy-paste
+// and quietly break a leading-prefix filter (they aren't whitespace
+// to .trim()).
 function extractAdfText_(adf) {
   if (!adf) return '';
   var parts = [];
@@ -344,7 +360,10 @@ function extractAdfText_(adf) {
     if (node.content && Array.isArray(node.content)) node.content.forEach(walk);
   }
   walk(adf);
-  return parts.join(' ').trim();
+  return parts.join(' ')
+    .replace(/[​-‍﻿]/g, '')   // zero-width space / joiner / BOM
+    .replace(/ /g, ' ')                   // non-breaking space → regular
+    .trim();
 }
 
 // ============================================================
