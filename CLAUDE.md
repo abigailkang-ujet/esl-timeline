@@ -107,7 +107,7 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 
 ---
 
-## File Status (as of 2026-05-20)
+## File Status (as of 2026-05-26)
 
 | File | Status | Description |
 |------|--------|-------------|
@@ -283,13 +283,13 @@ New column "Size" between Risk and Plan Start.
 - **Format tolerance**: `buildTshirtBadge(size)` recognizes bare letters (`S`), full words (`Small`), and Jira's `"L - Large"` / `"XL - Extra Large"` select-list format. XL is checked first so `X-Large` doesn't get caught by the bare-L branch.
 - Collapsible column (`data-col="size"`).
 
-### Late-reason comments → Jira (2026-05-20)
+### Late-reason comments → Jira (2026-05-20, prefix softened 2026-05-26)
 Late-task (overrun / red-hatched Gantt segment) gets a click + hover affordance for posting and reading reasons as Jira comments.
 
 - **Click overrun bar** → opens modal:
   - First time: prompts for the user's name, stores it in localStorage `'esl-author-name'`
   - Reason textarea, Post / Cancel buttons, status line
-  - Submitted body format: `Late reason — [Name] reason text` (the "Late reason —" prefix so the Jira comment reads sensibly out of timeline context)
+  - Submitted body format: **`Note (late reason, etc) — [Name] reason text`** (soft "Note" header reads neutrally to whoever is assigned to the Jira ticket; parenthetical keeps intent explicit). Server filter recognizes all three historical formats — current `Note (late reason, etc) —`, prior `Late reason —`, oldest `[Author] …`
 - **Hover overrun bar (250ms delay)** → custom floating tooltip:
   - Header line: `Late · plan {end} → actual {end}` (red, uppercase)
   - Comments list (author · date / body) — only comments matching our convention (`Late reason —…` or legacy `[…`) are surfaced; unrelated Jira chatter stays out
@@ -367,8 +367,10 @@ Late-task (overrun / red-hatched Gantt segment) gets a click + hover affordance 
 - **Dual-bar (2026-05-07 spec)**: bar branches on whether *effective* actual data exists.
   - **Case 1 — plan only** (To Do / no fallback): single full-height `.gantt-bar` in team color, identical to legacy behaviour.
   - **Case 2/3 — half-split** (effective actual present): top half `.gantt-plan` (muted grey, team-agnostic), bottom half `.gantt-actual` (team color). When actual end > plan end, append `.gantt-overrun` continuing past plan-end with a soft red hatch (`var(--red)` palette, low contrast, no border).
-  - **In Progress + no explicit `actualEnd`**: `.gantt-actual` adds class `in-progress-ongoing` — CSS `mask-image` fades the right edge so the endpoint reads as "ongoing, today as soft endpoint."
-  - **Effective dates** via `effectiveActualStart(t)` / `effectiveActualEnd(t)`: explicit `t.actualStart` / `t.actualEnd` win first, then `t.statusChangedAt` (Jira `statuscategorychangedate`) for start when status is In Progress / Closed, then `t.resolvedAt` (Jira `resolutiondate`) for end when Closed, then today for end when In Progress.
+  - **In Progress = always ongoing** (2026-05-26): `.gantt-actual` adds class `in-progress-ongoing` regardless of any `t.actualEnd` value. The gradient fade + "ongoing" label apply whenever status is "In Progress".
+  - **Effective dates** via `effectiveActualStart(t)` / `effectiveActualEnd(t)`:
+    - **Start**: `t.actualStart` first; else `t.statusChangedAt` when status is In Progress / Closed.
+    - **End (2026-05-26)**: status is checked FIRST. If In Progress → return today (override any stale `t.actualEnd` carried from Jira `duedate`). Only when not In Progress: use `t.actualEnd` → else `t.resolvedAt` when Closed → else empty. This guarantees the Late hatch extends to today for In Progress tasks past plan end, matching the Schedule chip's "Behind" verdict.
   - All segments carry the same `onclick` → opens Jira. Row-level tooltip annotates fallback sources (e.g. `~5/15 (resolved)` when end came from `resolvedAt` rather than explicit `actualEnd`).
 - **Bar click**: if `epicUrl` exists, `window.open(epicUrl, '_blank')` — cursor:pointer. Native `title` attr is gone; the inline `.bar-label` (see below) covers the visual hint.
 - **Bar hover label (2026-05-07)**: each segment renders an inner `<span class="bar-label">` and grows vertically on hover (6→16px split, 10→18px single) to reveal the date string in white, e.g. `Plan: 4/16 → 5/28`, `Actual: 4/16 → today`, `Late: 5/28 → 6/15`. Built via `seg(left, width, extraStyle, klass, label)` helper. Plan segment darkens its grey bg on hover for white-text contrast; overrun drops the red hatch and switches to solid red on hover. **`overflow: hidden` was deliberately dropped** so labels on narrow bars extend past the bar edges; a strong text-shadow (`0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55)`) keeps the label readable wherever it lands.
@@ -463,7 +465,7 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **Deploy**: git commit ≠ live. After merging to `main`, manually paste changed files into the Apps Script editor and use **Deploy → Manage deployments → Edit → New version** to preserve the URL.
 - **No test framework**. Verification is static (grep/read) + post-deploy visual checks.
 
-## Current Status (2026-05-20)
+## Current Status (2026-05-26)
 
 - 7 teams (CALL, SDK, CHAT, API, Email, AGX, DATA), ADX removed
 - **jira_url PK refactor complete** — Sheets schema fully on jira_url PK; `syncNotionToSheets.gs` simplified to clear+dump
@@ -474,7 +476,11 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **Jira live override**: webApp.gs hits Jira REST at render time (5-min cache) for status / actualStart / actualEnd / statusChangedAt / resolvedAt / issuelinks (Blocks + Relates) / **T-shirt size (`customfield_11190`)**. Token in Script Properties as `jiraToken`.
 - **Jira write-back** (2026-05-18): "Jira Push" menu pushes Sheet's `Ideal Delivery (due to SOW)` value into Jira's `customfield_11900` (Committed Date). Dry-run + confirm dialog gating.
 - **T-shirt Size column** (2026-05-20): new Size column between Risk and Plan Start. Source = Jira customfield_11190, falls back to Notion Eng Size. Blue chip family (distinct from Risk red/amber/green). Format-tolerant normalizer handles bare letters, full words, and `"L - Large"` select-list format.
-- **Late-reason → Jira comments** (2026-05-20): click red hatch on overrun bar → modal posts `Late reason — [Name] reason` as a Jira comment via `google.script.run.postJiraCommentFromUI`. Hover overrun bar → custom tooltip shows date + posted reasons (parallel-fetched, 5-min cache, filtered to our convention). Optimistic local update on submit; ESC closes; toast confirms.
+- **Late-reason → Jira comments** (2026-05-20): click red hatch on overrun bar → modal posts comment as Jira comment via `google.script.run.postJiraCommentFromUI`. Hover overrun bar → custom tooltip shows date + posted reasons (parallel-fetched, 5-min cache, filtered to our convention). Optimistic local update on submit; ESC closes; toast confirms. **Body format (2026-05-26)**: `Note (late reason, etc) — [Name] reason text` — softer header so Jira viewers don't read it as accusatory. Server filter recognizes legacy `Late reason —` and `[…` prefixes too.
+- **In Progress Late hatch fix** (2026-05-26): `effectiveActualEnd` now checks status === 'in progress' FIRST and forces today, ignoring any stale `t.actualEnd` from Jira `duedate`. Combined with `isOngoing` dropping the `&& !t.actualEnd` guard, an In Progress task that's past its planned end now correctly shows the actual bar + Late hatch extending to today.
+- **Hybrid Notion / Jira / Sheets data architecture** (2026-05-21, by external session): webApp.gs no longer reads Notion data from `Notion_raw` sheet — it now calls Notion API direct (`fetchNotionDirect()`, 10-min CacheService cache), with the daily-synced Sheets tab as fallback. See top of webApp.gs and "Data Architecture" section for details. `syncNotionToSheets.gs` still runs daily 7AM as backup populator for `Notion_raw` (used by Overall/Realistic XLOOKUP formulas + `compareSizesNotionVsJira()` + tertiary fallback).
+- **clasp + GAS Commander deploy** (2026-05-21, by external session): clasp now configured; GAS Commander UI provides a "Deploy to Apps Script" button that pulls latest from GitHub and pushes to Apps Script in one click. No more manual clipboard → paste → Deploy New Version workflow.
+- **No-cache meta tags** (2026-05-21, by external session): browser cache busting for stale data.
 - **Size diff tool** (2026-05-20): "Jira Push → Compare Sizes: Notion vs Jira" menu populates a colour-coded "Size_diff" tab with per-row status (MATCH / MISMATCH / ONLY_IN_NOTION / ONLY_IN_JIRA / JIRA_FETCH_FAILED / NO_JIRA_KEY).
 - **Default sort** (2026-05-19): tasks sort by plan start ASC within each team on first load.
 - **webApp.gs deployed (2026-04-27)** — local + main + live now in sync
