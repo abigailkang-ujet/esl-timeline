@@ -283,21 +283,29 @@ New column "Size" between Risk and Plan Start.
 - **Format tolerance**: `buildTshirtBadge(size)` recognizes bare letters (`S`), full words (`Small`), and Jira's `"L - Large"` / `"XL - Extra Large"` select-list format. XL is checked first so `X-Large` doesn't get caught by the bare-L branch.
 - Collapsible column (`data-col="size"`).
 
-### Late-reason comments → Jira (2026-05-20, prefix softened 2026-05-26)
+### Late-reason comments → Jira (2026-05-20, expanded 2026-05-26)
 Late-task (overrun / red-hatched Gantt segment) gets a click + hover affordance for posting and reading reasons as Jira comments.
 
-- **Click overrun bar** → opens modal:
+- **Click overrun bar** → opens modal (view + add + edit + delete in one place, 2026-05-26):
   - First time: prompts for the user's name, stores it in localStorage `'esl-author-name'`
-  - Reason textarea, Post / Cancel buttons, status line
+  - Existing comments listed at top of the modal. Own comments (matched on the `[Name]` tag against `esl-author-name`) get inline ✏️ / 🗑️ buttons; everyone else's stays read-only
+  - ✏️ → inline textarea with Save / Cancel; saves via `editJiraCommentFromUI(key, id, text)` PUT, reapplying the same prefix
+  - 🗑️ → `confirm('Delete this reason?')` → `deleteJiraCommentFromUI(key, id)` DELETE, optimistic local removal
+  - Below: Add-new section with reason textarea + Post / Close buttons
   - Submitted body format: **`Note (late reason, etc) — [Name] reason text`** (soft "Note" header reads neutrally to whoever is assigned to the Jira ticket; parenthetical keeps intent explicit). Server filter recognizes all three historical formats — current `Note (late reason, etc) —`, prior `Late reason —`, oldest `[Author] …`
-- **Hover overrun bar (250ms delay)** → custom floating tooltip:
+- **Hover overrun bar (250ms delay)** → custom floating tooltip (read-only):
   - Header line: `Late · plan {end} → actual {end}` (red, uppercase)
-  - Comments list (author · date / body) — only comments matching our convention (`Late reason —…` or legacy `[…`) are surfaced; unrelated Jira chatter stays out
+  - Comments list (author · date / body)
   - Empty state when no reasons logged yet
   - Hint: "Click bar to add reason"
-- **Submission path**: `google.script.run.postJiraCommentFromUI(jiraKey, text)` calls server-side, which POSTs ADF body to `/rest/api/3/issue/{key}/comment`. Returns `{ ok, id, key, comment }`. Returned `comment` is optimistically appended to `ALL_TASKS[i].lateComments` so the next hover reflects the new entry without waiting for the 5-min server cache to expire.
+- **Submission path**: `google.script.run.postJiraCommentFromUI / editJiraCommentFromUI / deleteJiraCommentFromUI` call server-side, which hits Jira REST `/rest/api/3/issue/{key}/comment[/{id}]`. POST/PUT use ADF body. All three invalidate the late-comments cache on success.
 - **Why `google.script.run` and not fetch**: Apps Script webapps render in a sandbox iframe on a different origin, so `fetch(window.location)` hits the sandbox and gets the HTML page back instead of JSON. `google.script.run` is the supported RPC channel.
-- **Reading existing comments**: `fetchLateCommentsFromJira_(jiraKeys)` parallel-fetches `/comment` for tasks whose actual end is past plan end (overrun), filters to our late-reason convention, caches 5 min via CacheService. `postJiraCommentFromUI` invalidates that cache on success.
+- **Reading existing comments**: `fetchLateCommentsFromJira_(jiraKeys)` parallel-fetches `/comment` for tasks whose overrun hatch renders. Cached 5 min via CacheService.
+- **lateKeys criterion (widened 2026-05-26)** — matches the frontend's effective-actual-end hatch logic, three shapes:
+  1. closed late          : `actualEnd > planEnd`
+  2. closed late, no actualEnd : `resolvedAt > planEnd` (status Closed)
+  3. **in progress past plan : `today > planEnd`** ← added 2026-05-26. Without this, equal-date tasks like PLAN 5/22 / ACTUAL 5/22 that are still In Progress (visual hatch reaches today) were silently excluded.
+- **Filter (widened 2026-05-26)** — body must start with `Note (late reason, etc) —` / `Late reason —` / `[`, OR carry a `[Word…]` tag anywhere in the first 40 chars (safety net for ADF artifacts like mention/emoji prefixes). `extractAdfText_` also scrubs zero-width chars (U+200B-U+200D, U+FEFF) and non-breaking spaces — they survive `.trim()` and would silently shift a leading-prefix check off zero. Skipped comments now log `[late-comments] skipped (KEY/id): "…"` to Executions for future debugging.
 - **Search**: text input in ctrlRow — filters by task name + JIRA key (case-insensitive)
 - **Deps**: toggle on same row as PM dropdown (ctrlRow)
 - **Show Actual (2026-04-28; scope narrowed 2026-05-07)**: toggle next to Deps. `showActual` global, persisted in localStorage `esl-show-actual`. When ON, two extra columns `Act Start` / `Act End` appear between `Plan End` and `Ideal`, sourced from `t.actualStart` / `t.actualEnd` (Jira REST direct, Notion-synced fallback). **Toggle controls the columns only — the Gantt bar's dual-bar treatment now renders independently whenever effective actual data exists** (see Gantt section below).
@@ -476,8 +484,13 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **Jira live override**: webApp.gs hits Jira REST at render time (5-min cache) for status / actualStart / actualEnd / statusChangedAt / resolvedAt / issuelinks (Blocks + Relates) / **T-shirt size (`customfield_11190`)**. Token in Script Properties as `jiraToken`.
 - **Jira write-back** (2026-05-18): "Jira Push" menu pushes Sheet's `Ideal Delivery (due to SOW)` value into Jira's `customfield_11900` (Committed Date). Dry-run + confirm dialog gating.
 - **T-shirt Size column** (2026-05-20): new Size column between Risk and Plan Start. Source = Jira customfield_11190, falls back to Notion Eng Size. Blue chip family (distinct from Risk red/amber/green). Format-tolerant normalizer handles bare letters, full words, and `"L - Large"` select-list format.
-- **Late-reason → Jira comments** (2026-05-20): click red hatch on overrun bar → modal posts comment as Jira comment via `google.script.run.postJiraCommentFromUI`. Hover overrun bar → custom tooltip shows date + posted reasons (parallel-fetched, 5-min cache, filtered to our convention). Optimistic local update on submit; ESC closes; toast confirms. **Body format (2026-05-26)**: `Note (late reason, etc) — [Name] reason text` — softer header so Jira viewers don't read it as accusatory. Server filter recognizes legacy `Late reason —` and `[…` prefixes too.
+- **Late-reason → Jira comments** (2026-05-20, expanded 2026-05-26):
+  - Click red hatch → modal with view / add / **edit / delete** (own notes only). `postJiraCommentFromUI` / `editJiraCommentFromUI` / `deleteJiraCommentFromUI` via `google.script.run`. Optimistic local updates after each operation.
+  - Body format: `Note (late reason, etc) — [Name] reason text` (soft, neutral when surfaced in Jira). Server filter recognizes the new format AND legacy `Late reason —` / `[…` prefixes.
+  - `extractAdfText_` scrubs zero-width / BOM / non-breaking-space characters so a Confluence-copy-paste artifact can't silently knock a leading-prefix match off zero.
+  - `lateKeys` overrun criterion (widened 2026-05-26): closed-late OR closed+resolvedAt-late OR **In Progress + today > planEnd**. Last branch caught a case where actualEnd === planEnd but the hatch still rendered (because effectiveActualEnd returns today for In Progress).
 - **In Progress Late hatch fix** (2026-05-26): `effectiveActualEnd` now checks status === 'in progress' FIRST and forces today, ignoring any stale `t.actualEnd` from Jira `duedate`. Combined with `isOngoing` dropping the `&& !t.actualEnd` guard, an In Progress task that's past its planned end now correctly shows the actual bar + Late hatch extending to today.
+- **fmtDate timezone fix** (2026-05-26): server-side date formatter now uses `SpreadsheetApp.getSpreadsheetTimeZone()` instead of `Session.getScriptTimeZone()`. The Apps Script project runs in America/Los_Angeles (per appsscript.json) but the spreadsheet is in Asia/Seoul — formatting Seoul-midnight dates with LA's timezone shifted every Plan Start / Plan End back by one day. Now "what was typed in the Sheet" round-trips correctly.
 - **Hybrid Notion / Jira / Sheets data architecture** (2026-05-21, by external session): webApp.gs no longer reads Notion data from `Notion_raw` sheet — it now calls Notion API direct (`fetchNotionDirect()`, 10-min CacheService cache), with the daily-synced Sheets tab as fallback. See top of webApp.gs and "Data Architecture" section for details. `syncNotionToSheets.gs` still runs daily 7AM as backup populator for `Notion_raw` (used by Overall/Realistic XLOOKUP formulas + `compareSizesNotionVsJira()` + tertiary fallback).
 - **clasp + GAS Commander deploy** (2026-05-21, by external session): clasp now configured; GAS Commander UI provides a "Deploy to Apps Script" button that pulls latest from GitHub and pushes to Apps Script in one click. No more manual clipboard → paste → Deploy New Version workflow.
 - **No-cache meta tags** (2026-05-21, by external session): browser cache busting for stale data.
