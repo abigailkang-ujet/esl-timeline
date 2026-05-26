@@ -1717,7 +1717,7 @@ function buildTimeline(tasks, teamFilter) {
       if (hasActual) {
         var aL = dayToPx(dayOffset(actSd_));
         var aW = Math.max(3, dayToPx(dayOffset(actEd_)) - aL);
-        var isOngoing2 = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
+        var isOngoing2 = (t.status || '').toLowerCase().trim() === 'in progress';
         var actEnd2    = isOngoing2 ? 'ongoing' : fmtShort(actEd_);
         var aLbl       = 'Actual: ' + fmtShort(actSd_) + ' → ' + actEnd2;
         ganttInner += '<div class="gantt-multi scen-actual" ' +
@@ -1743,7 +1743,9 @@ function buildTimeline(tasks, teamFilter) {
       const actLeft  = dayToPx(dayOffset(actSd_));
       const actEdPx  = dayToPx(dayOffset(actEd_));
       const planEdPx = ed ? dayToPx(dayOffset(ed)) : null;
-      const isOngoing = (t.status || '').toLowerCase().trim() === 'in progress' && !t.actualEnd;
+      // In Progress = ongoing regardless of any t.actualEnd value (which can
+      // come from Jira's duedate and is unreliable for not-yet-done tasks).
+      const isOngoing = (t.status || '').toLowerCase().trim() === 'in progress';
       const actClass = 'gantt-actual' + (isOngoing ? ' in-progress-ongoing' : '');
       // For ongoing tasks (In Progress + no recorded actualEnd) the bar visually
       // ends at today as a placeholder, but the label text must NOT claim
@@ -2018,10 +2020,15 @@ function effectiveActualStart(t) {
 }
 
 function effectiveActualEnd(t) {
-  if (t.actualEnd) return t.actualEnd;
   var s = (t.status || '').toLowerCase().trim();
-  if (/closed|done|complete/.test(s)) return t.resolvedAt || '';
+  // In Progress = the task is still running RIGHT NOW. Force "today" so
+  // the bar (and any Late hatch) reaches the current moment instead of
+  // a stale t.actualEnd that Jira may still carry from duedate / a prior
+  // estimate. We don't trust a past-dated end on a task that hasn't
+  // formally finished.
   if (s === 'in progress') return new Date().toISOString().slice(0, 10);
+  if (t.actualEnd) return t.actualEnd;
+  if (/closed|done|complete/.test(s)) return t.resolvedAt || '';
   return '';
 }
 
