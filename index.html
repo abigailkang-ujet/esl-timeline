@@ -2822,9 +2822,12 @@ function submitLateReason() {
     name = typed;
     try { localStorage.setItem('esl-author-name', name); } catch (e) {}
   }
-  // Prefix with "Late reason —" so the comment reads sensibly when viewed
-  // in Jira out of timeline context. The "[Name]" tag preserves attribution.
-  var body = 'Late reason — [' + name + '] ' + reason;
+  // Prefix with "Note (late reason, etc) —" so the comment reads sensibly
+  // when viewed in Jira out of timeline context. The neutral "Note" header
+  // softens what would otherwise read as accusatory to whoever's allocated
+  // to the ticket; the parenthetical keeps the intent explicit. The "[Name]"
+  // tag preserves attribution on the timeline side.
+  var body = 'Note (late reason, etc) — [' + name + '] ' + reason;
 
   var btn = document.getElementById('late-reason-submit');
   btn.disabled = true;

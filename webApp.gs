@@ -207,13 +207,16 @@ function fetchLateCommentsFromJira_(jiraKeys) {
           created: c.created || '',
         };
       }).filter(function(c) {
-        // Only surface comments that match our late-reason convention.
-        // Current format starts with "Late reason —"; older comments
-        // (posted before that prefix existed) start with "[Author]".
-        // Match either so legacy entries stay visible.
+        // Surface comments that match our late-reason convention. Three
+        // historical formats are recognized so legacy entries stay visible:
+        //   - current : "Note (late reason, etc) — [Author] …"
+        //   - prior   : "Late reason — [Author] …"
+        //   - oldest  : "[Author] …"
         if (!c.body) return false;
         var b = c.body.trim();
-        return b.indexOf('Late reason') === 0 || b.charAt(0) === '[';
+        return b.indexOf('Note (late reason') === 0
+            || b.indexOf('Late reason') === 0
+            || b.charAt(0) === '[';
       });
       byKey[key] = comments;
     });
