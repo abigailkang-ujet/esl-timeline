@@ -141,7 +141,8 @@ function postJiraCommentFromUI(jiraKey, text) {
         // Echo the comment back so the frontend can optimistically append
         // it to its in-memory task data without waiting for a page reload.
         comment: {
-          author: 'You',         // best-effort — Jira's display name isn't returned on POST
+          id: json.id,
+          author: (json.author && json.author.displayName) || 'You',
           body: body,
           created: new Date().toISOString(),
         }
@@ -152,6 +153,104 @@ function postJiraCommentFromUI(jiraKey, text) {
     return { ok: false, error: 'Jira HTTP ' + code + ': ' + snip };
   } catch (err) {
     Logger.log('[jira-comment] threw: ' + err.message);
+    return { ok: false, error: 'Threw: ' + err.message };
+  }
+}
+
+// ============================================================
+// Edit an existing Jira comment. Called from the timeline modal via
+// google.script.run.editJiraCommentFromUI. Returns the same shape as
+// postJiraCommentFromUI on success so the caller can swap the entry
+// in its local list.
+// ============================================================
+function editJiraCommentFromUI(jiraKey, commentId, text) {
+  var key  = String(jiraKey   || '').trim();
+  var id   = String(commentId || '').trim();
+  var body = String(text      || '').trim();
+  if (!key)  return { ok: false, error: 'jiraKey required' };
+  if (!id)   return { ok: false, error: 'commentId required' };
+  if (!body) return { ok: false, error: 'text required' };
+
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) return { ok: false, error: 'jiraToken not set in Script Properties' };
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  var payload = {
+    body: {
+      type: 'doc', version: 1,
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: body }] }]
+    }
+  };
+
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + encodeURIComponent(key) + '/comment/' + encodeURIComponent(id),
+      {
+        method: 'put', contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+        muteHttpExceptions: true,
+      }
+    );
+    var code = resp.getResponseCode();
+    if (code === 200) {
+      var json = JSON.parse(resp.getContentText());
+      Logger.log('[jira-comment] edited ' + key + '/' + id);
+      try { CacheService.getScriptCache().remove(JIRA_LATE_COMMENTS_CACHE_KEY); } catch (e) {}
+      return {
+        ok: true, id: id, key: key,
+        comment: {
+          id: id,
+          author: (json.author && json.author.displayName) || 'You',
+          body: body,
+          created: json.updated || json.created || new Date().toISOString(),
+        }
+      };
+    }
+    var snip = resp.getContentText().slice(0, 300);
+    Logger.log('[jira-comment] edit HTTP ' + code + ' for ' + key + '/' + id + ': ' + snip);
+    return { ok: false, error: 'Jira HTTP ' + code + ': ' + snip };
+  } catch (err) {
+    Logger.log('[jira-comment] edit threw: ' + err.message);
+    return { ok: false, error: 'Threw: ' + err.message };
+  }
+}
+
+// ============================================================
+// Delete a Jira comment. Called from the timeline modal via
+// google.script.run.deleteJiraCommentFromUI. Returns { ok, id, key }
+// on 204; caller drops the entry from its local list.
+// ============================================================
+function deleteJiraCommentFromUI(jiraKey, commentId) {
+  var key = String(jiraKey   || '').trim();
+  var id  = String(commentId || '').trim();
+  if (!key) return { ok: false, error: 'jiraKey required' };
+  if (!id)  return { ok: false, error: 'commentId required' };
+
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) return { ok: false, error: 'jiraToken not set in Script Properties' };
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + encodeURIComponent(key) + '/comment/' + encodeURIComponent(id),
+      {
+        method: 'delete',
+        headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+        muteHttpExceptions: true,
+      }
+    );
+    var code = resp.getResponseCode();
+    if (code === 204) {
+      Logger.log('[jira-comment] deleted ' + key + '/' + id);
+      try { CacheService.getScriptCache().remove(JIRA_LATE_COMMENTS_CACHE_KEY); } catch (e) {}
+      return { ok: true, id: id, key: key };
+    }
+    var snip = resp.getContentText().slice(0, 300);
+    Logger.log('[jira-comment] delete HTTP ' + code + ' for ' + key + '/' + id + ': ' + snip);
+    return { ok: false, error: 'Jira HTTP ' + code + ': ' + snip };
+  } catch (err) {
+    Logger.log('[jira-comment] delete threw: ' + err.message);
     return { ok: false, error: 'Threw: ' + err.message };
   }
 }
@@ -202,6 +301,7 @@ function fetchLateCommentsFromJira_(jiraKeys) {
       catch (e) { byKey[key] = []; return; }
       var comments = (json.comments || []).map(function(c) {
         return {
+          id:      c.id || '',
           author:  (c.author && c.author.displayName) || 'Unknown',
           body:    extractAdfText_(c.body),
           created: c.created || '',

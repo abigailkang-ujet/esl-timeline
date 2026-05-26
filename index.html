@@ -600,6 +600,87 @@
   }
   .late-reason-btn-cancel:hover { color: var(--text-primary); border-color: var(--text-muted); }
 
+  /* Existing comments section — view / edit / delete */
+  .late-reason-existing {
+    display: flex; flex-direction: column; gap: 8px;
+    margin: 8px 0 16px;
+    max-height: 280px; overflow-y: auto;
+  }
+  .late-reason-existing-empty {
+    font-size: 12px; color: var(--text-muted);
+    font-style: italic; padding: 4px 0;
+  }
+  .late-reason-existing-item {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .late-reason-existing-meta {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10px; color: var(--text-muted);
+    margin-bottom: 3px;
+  }
+  .late-reason-existing-author { font-weight: 700; color: var(--text-secondary); }
+  .late-reason-existing-date { font-variant-numeric: tabular-nums; }
+  .late-reason-existing-actions {
+    margin-left: auto; display: flex; gap: 4px;
+  }
+  .late-reason-icon-btn {
+    background: transparent; border: none; cursor: pointer;
+    padding: 2px 5px; border-radius: 4px;
+    font-size: 12px; line-height: 1;
+    color: var(--text-muted);
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .late-reason-icon-btn:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-primary);
+  }
+  .late-reason-icon-btn.danger:hover { color: var(--red); }
+  body.light-mode .late-reason-icon-btn:hover { background: rgba(0,0,0,0.05); }
+
+  .late-reason-existing-body {
+    font-size: 12px; color: var(--text-primary);
+    line-height: 1.4; word-break: break-word;
+  }
+  .late-reason-existing-textarea {
+    width: 100%; box-sizing: border-box;
+    padding: 6px 8px; font-family: inherit; font-size: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-mid);
+    color: var(--text-primary);
+    border-radius: 6px;
+    resize: vertical; min-height: 50px;
+    outline: none;
+  }
+  .late-reason-existing-textarea:focus { border-color: var(--blue); }
+  .late-reason-existing-edit-actions {
+    display: flex; gap: 6px; justify-content: flex-end;
+    margin-top: 6px;
+  }
+  .late-reason-existing-edit-actions button {
+    padding: 4px 11px; font-size: 11px; border-radius: 5px;
+    cursor: pointer; font-family: inherit; font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .late-reason-existing-edit-save {
+    background: var(--blue); color: white;
+  }
+  .late-reason-existing-edit-cancel {
+    background: transparent; color: var(--text-secondary);
+    border-color: var(--border-mid);
+  }
+  .late-reason-existing-edit-save:hover { filter: brightness(1.1); }
+  .late-reason-existing-edit-save:disabled { opacity: 0.5; cursor: wait; }
+
+  /* Section divider above "Add a new reason" */
+  .late-reason-add-section {
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+    margin-top: 4px;
+  }
+
   /* Toast notifications (bottom-right stack) */
   .toast-container {
     position: fixed; bottom: 24px; right: 24px;
@@ -2789,6 +2870,7 @@ function openLateReasonModal(jiraKey, taskName) {
     nameRow.style.display = '';
     document.getElementById('late-reason-name').value = '';
   }
+  renderExistingLateComments(jiraKey);
   document.getElementById('late-reason-overlay').classList.add('show');
   setTimeout(function() {
     var firstInput = savedName
@@ -2797,6 +2879,154 @@ function openLateReasonModal(jiraKey, taskName) {
     if (firstInput) firstInput.focus();
   }, 60);
 }
+
+// ── Comment body helpers ──
+// Body shape we control: "Note (late reason, etc) — [Name] reason text"
+// (legacy: "Late reason — [Name] …" or just "[Name] …"). Pull the
+// author tag and just the reason text out for editing.
+function extractAuthorFromBody(body) {
+  var m = String(body || '').match(/\[([^\]]+)\]/);
+  return m ? m[1].trim() : '';
+}
+function extractReasonFromBody(body) {
+  var s = String(body || '').trim();
+  s = s.replace(/^Note \(late reason[^)]*\)\s*[—-]\s*/i, '');
+  s = s.replace(/^Late reason\s*[—-]\s*/i, '');
+  s = s.replace(/^\[[^\]]+\]\s*/, '');
+  return s.trim();
+}
+function reconstructLateBody(name, reason) {
+  return 'Note (late reason, etc) — [' + name + '] ' + reason;
+}
+
+function renderExistingLateComments(jiraKey) {
+  var container = document.getElementById('late-reason-existing');
+  if (!container) return;
+  var task = Array.isArray(ALL_TASKS) ? ALL_TASKS.find(function(t) { return t.epic === jiraKey; }) : null;
+  var comments = (task && task.lateComments) || [];
+  if (comments.length === 0) {
+    container.innerHTML = '<div class="late-reason-existing-empty">No reasons logged yet.</div>';
+    return;
+  }
+  var savedName = '';
+  try { savedName = localStorage.getItem('esl-author-name') || ''; } catch (e) {}
+  var html = comments.map(function(c, idx) {
+    var author = c.author || 'Unknown';
+    var taggedAuthor = extractAuthorFromBody(c.body);
+    var isOwn = !!(savedName && c.id && taggedAuthor && taggedAuthor === savedName);
+    var when = fmtCommentDate(c.created);
+    var meta = escapeHtmlBasic(author) + (when ? ' · ' + when : '');
+    var actions = isOwn
+      ? '<span class="late-reason-existing-actions">' +
+          '<button class="late-reason-icon-btn" data-action="edit"   data-idx="' + idx + '" title="Edit">✏️</button>' +
+          '<button class="late-reason-icon-btn danger" data-action="delete" data-idx="' + idx + '" title="Delete">🗑️</button>' +
+        '</span>'
+      : '';
+    return '<div class="late-reason-existing-item" data-idx="' + idx + '">' +
+      '<div class="late-reason-existing-meta">' +
+        '<span class="late-reason-existing-author">' + meta + '</span>' +
+        actions +
+      '</div>' +
+      '<div class="late-reason-existing-body" data-role="body">' + escapeHtmlBasic(c.body) + '</div>' +
+      '</div>';
+  }).join('');
+  container.innerHTML = html;
+}
+
+function beginEditLateComment(jiraKey, idx) {
+  var task = ALL_TASKS.find(function(t) { return t.epic === jiraKey; });
+  if (!task) return;
+  var c = task.lateComments[idx];
+  if (!c) return;
+  var item = document.querySelector('.late-reason-existing-item[data-idx="' + idx + '"]');
+  if (!item) return;
+  var bodyDiv = item.querySelector('[data-role="body"]');
+  if (!bodyDiv || item.classList.contains('editing')) return;
+  item.classList.add('editing');
+  var reasonText = extractReasonFromBody(c.body);
+  bodyDiv.outerHTML =
+    '<textarea class="late-reason-existing-textarea" data-role="edit-textarea" rows="2">' +
+      escapeHtmlBasic(reasonText) +
+    '</textarea>' +
+    '<div class="late-reason-existing-edit-actions">' +
+      '<button class="late-reason-existing-edit-cancel" data-action="edit-cancel" data-idx="' + idx + '">Cancel</button>' +
+      '<button class="late-reason-existing-edit-save"   data-action="edit-save"   data-idx="' + idx + '">Save</button>' +
+    '</div>';
+  var ta = item.querySelector('[data-role="edit-textarea"]');
+  if (ta) ta.focus();
+}
+
+function saveEditLateComment(jiraKey, idx) {
+  var task = ALL_TASKS.find(function(t) { return t.epic === jiraKey; });
+  if (!task) return;
+  var c = task.lateComments[idx];
+  if (!c || !c.id) return;
+  var item = document.querySelector('.late-reason-existing-item[data-idx="' + idx + '"]');
+  if (!item) return;
+  var ta = item.querySelector('[data-role="edit-textarea"]');
+  var newReason = (ta && ta.value || '').trim();
+  if (!newReason) { showToast('Please write a reason.', 'error'); return; }
+  var name = extractAuthorFromBody(c.body) || (function() {
+    try { return localStorage.getItem('esl-author-name') || ''; } catch (e) { return ''; }
+  })();
+  var newBody = reconstructLateBody(name, newReason);
+  var saveBtn = item.querySelector('[data-action="edit-save"]');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.ok) {
+        task.lateComments[idx] = Object.assign({}, c, res.comment || { id: c.id, body: newBody, created: c.created });
+        renderExistingLateComments(jiraKey);
+        showToast('Reason updated', 'success');
+      } else {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+        showToast('Edit failed: ' + ((res && res.error) || 'unknown'), 'error');
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+      showToast('Network error: ' + (err && err.message || err), 'error');
+    })
+    .editJiraCommentFromUI(jiraKey, c.id, newBody);
+}
+
+function deleteLateComment(jiraKey, idx) {
+  var task = ALL_TASKS.find(function(t) { return t.epic === jiraKey; });
+  if (!task) return;
+  var c = task.lateComments[idx];
+  if (!c || !c.id) return;
+  if (!confirm('Delete this reason?')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.ok) {
+        task.lateComments.splice(idx, 1);
+        renderExistingLateComments(jiraKey);
+        showToast('Reason deleted', 'success');
+      } else {
+        showToast('Delete failed: ' + ((res && res.error) || 'unknown'), 'error');
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('Network error: ' + (err && err.message || err), 'error');
+    })
+    .deleteJiraCommentFromUI(jiraKey, c.id);
+}
+
+// Delegated click handler for edit/delete/save/cancel inside the existing-comments list
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest && e.target.closest('[data-action]');
+  if (!btn) return;
+  var container = document.getElementById('late-reason-existing');
+  if (!container || !container.contains(btn)) return;
+  var action = btn.getAttribute('data-action');
+  var idx = parseInt(btn.getAttribute('data-idx'), 10);
+  if (!lateReasonContext || isNaN(idx)) return;
+  var jiraKey = lateReasonContext.jiraKey;
+  if (action === 'edit')        beginEditLateComment(jiraKey, idx);
+  else if (action === 'delete') deleteLateComment(jiraKey, idx);
+  else if (action === 'edit-save')   saveEditLateComment(jiraKey, idx);
+  else if (action === 'edit-cancel') renderExistingLateComments(jiraKey);
+});
 
 function closeLateReasonModal() {
   document.getElementById('late-reason-overlay').classList.remove('show');
@@ -3005,17 +3235,26 @@ maybeAutoTour();
 <!-- Late reason modal — hidden by default, opened from gantt-overrun click -->
 <div class="late-reason-overlay" id="late-reason-overlay" onclick="if(event.target===this)closeLateReasonModal()">
   <div class="late-reason-modal" role="dialog" aria-labelledby="late-reason-title">
-    <div class="late-reason-title" id="late-reason-title">Add late reason</div>
+    <div class="late-reason-title" id="late-reason-title">Late reasons</div>
     <div class="late-reason-subtitle" id="late-reason-task"></div>
-    <div id="late-reason-name-row" style="display:none">
-      <label class="late-reason-label" for="late-reason-name">Your name (saved for next time)</label>
-      <input type="text" id="late-reason-name" placeholder="e.g. Abigail" maxlength="40">
+
+    <!-- Existing comments (populated by openLateReasonModal). Own comments
+         get inline edit / delete affordances; everyone else's are read-only. -->
+    <div class="late-reason-existing" id="late-reason-existing"></div>
+
+    <!-- Add new reason -->
+    <div class="late-reason-add-section">
+      <div id="late-reason-name-row" style="display:none">
+        <label class="late-reason-label" for="late-reason-name">Your name (saved for next time)</label>
+        <input type="text" id="late-reason-name" placeholder="e.g. Abigail" maxlength="40">
+      </div>
+      <label class="late-reason-label" for="late-reason-text">Add a new reason</label>
+      <textarea id="late-reason-text" rows="3" maxlength="500" placeholder="Briefly explain why this task is late…"></textarea>
     </div>
-    <label class="late-reason-label" for="late-reason-text">Reason</label>
-    <textarea id="late-reason-text" rows="3" maxlength="500" placeholder="Briefly explain why this task is late…"></textarea>
+
     <div class="late-reason-status" id="late-reason-status"></div>
     <div class="late-reason-actions">
-      <button class="late-reason-btn-cancel" onclick="closeLateReasonModal()">Cancel</button>
+      <button class="late-reason-btn-cancel" onclick="closeLateReasonModal()">Close</button>
       <button class="late-reason-btn-primary" id="late-reason-submit" onclick="submitLateReason()">Post to Jira</button>
     </div>
   </div>
