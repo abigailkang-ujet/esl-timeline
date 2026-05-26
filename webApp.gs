@@ -1022,11 +1022,27 @@ function num(v) {
   return isNaN(n) ? 0 : n;
 }
 
+// Spreadsheet timezone is fetched lazily once per execution and cached. The
+// Apps Script project itself runs in America/Los_Angeles (appsscript.json),
+// but the spreadsheet lives in Asia/Seoul — formatting Sheet Date values
+// with the script's timezone shifts them backward by one day. Use the
+// spreadsheet's own timezone so "what the user typed" is what we return.
+var _ssTimeZoneCache = null;
+function _ssTimeZone_() {
+  if (_ssTimeZoneCache) return _ssTimeZoneCache;
+  try {
+    _ssTimeZoneCache = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  } catch (e) {
+    _ssTimeZoneCache = Session.getScriptTimeZone();   // ultimate fallback
+  }
+  return _ssTimeZoneCache;
+}
+
 function fmtDate(v) {
   if (!v) return '';
   if (typeof v.getTime === 'function') {
     if (isNaN(v.getTime())) return '';
-    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return Utilities.formatDate(v, _ssTimeZone_(), 'yyyy-MM-dd');
   }
   if (typeof v === 'number' && v > 1000) {
     const d = new Date(Math.round((v - 25569) * 86400000));
@@ -1038,7 +1054,7 @@ function fmtDate(v) {
   if (isoMatch) return isoMatch[1];
   const parsed = new Date(s);
   if (!isNaN(parsed.getTime())) {
-    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return Utilities.formatDate(parsed, _ssTimeZone_(), 'yyyy-MM-dd');
   }
   return s;
 }
