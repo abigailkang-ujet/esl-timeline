@@ -100,9 +100,10 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 
 ## Apps Script Deployment
 
-- **Live URL**: https://script.google.com/a/macros/ujet.cx/s/AKfycbzFRDFEpOfH47DNCXgf1hruIzrI-B951nYqFj_6I-7_9cQHEJMQkt8TnZuFrns9a4sD/exec
+- **Live URL**: https://script.google.com/a/macros/ujet.cx/s/AKfycbyWEzYulBTWKo-xeI31d1EHi2Wd44uLZfjbYpKZb6jeEwc1mb10druyfdfnVSbbPhXI/exec
+- **Previous URL** (deleted from project 2026-05-26, unrecoverable): `AKfycbzFRDFEpOfH47DNCXgf1hruIzrI-B951nYqFj_6I-7_9cQHEJMQkt8TnZuFrns9a4sD` — replaced with the new deployment above. To prevent the URL from disappearing again, configure GAS Commander to **update an existing deployment ID** (Deploy → Manage → Edit existing) instead of creating "New deployment" each time.
 - **Access**: Anyone (no auth)
-- **Code changes** → redeploy required (Deploy → Manage → New version)
+- **Code changes** → redeploy required (Deploy → Manage → New version, on the SAME deployment ID — do NOT create a new deployment)
 - **Data changes** (Sheets only) → no redeploy needed, just refresh the page
 
 ---
