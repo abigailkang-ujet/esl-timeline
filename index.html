@@ -2594,11 +2594,12 @@ function drawDependencies() {
   svg.id = 'dep-svg';
   svg.setAttribute('width', table.offsetWidth);
   svg.setAttribute('height', table.offsetHeight);
-  // SVG itself has no fill / no rect — empty areas have no painted content, so
-  // clicks through empty bezier interior fall through to the table behind. The
-  // visible path strokes are pointer-events:none so they don't compete with the
-  // wider transparent hit paths that own the <title> tooltips.
-  svg.style.cssText = 'position:absolute;top:0;left:0;z-index:10;';
+  // SVG container is pointer-events:none so it doesn't swallow hover/click on
+  // the table rows beneath. The wider transparent hit paths inside re-enable
+  // pointer-events:stroke to own the <title> tooltips on the dep lines
+  // themselves. Without this, toggling Show Dependencies blanket-killed every
+  // row-tooltip / bar-hover / status-dot-expand below the SVG bounding box.
+  svg.style.cssText = 'position:absolute;top:0;left:0;z-index:10;pointer-events:none;';
 
   // arrowhead marker
   var defs = document.createElementNS(NS, 'defs');
