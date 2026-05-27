@@ -2129,15 +2129,25 @@ function effectiveActualStart(t) {
 
 function effectiveActualEnd(t) {
   var s = (t.status || '').toLowerCase().trim();
-  // In Progress = the task is still running RIGHT NOW. Force "today" so
-  // the bar (and any Late hatch) reaches the current moment instead of
-  // a stale t.actualEnd that Jira may still carry from duedate / a prior
-  // estimate. We don't trust a past-dated end on a task that hasn't
-  // formally finished.
-  if (s === 'in progress') return new Date().toISOString().slice(0, 10);
-  if (t.actualEnd) return t.actualEnd;
-  if (/closed|done|complete/.test(s)) return t.resolvedAt || '';
-  return '';
+  var isClosed = /closed|done|complete/.test(s);
+  var todayStr = new Date().toISOString().slice(0, 10);
+
+  // Closed: use the real end (actualEnd preferred, resolvedAt fallback).
+  if (isClosed) {
+    return t.actualEnd || t.resolvedAt || '';
+  }
+  // Any non-closed task whose plan end has already passed: force "today"
+  // so the bar + late hatch reach the current moment. Bypasses a stale
+  // t.actualEnd (e.g. Jira duedate equal to planEnd that would otherwise
+  // stop the bar short of today). Covers In Progress, Blocked, To Do,
+  // Untriaged, Late-Start — anything that isn't formally finished.
+  if (t.end && todayStr > t.end) return todayStr;
+  // In Progress + still on schedule (today <= planEnd): bar still reaches
+  // today so the actual segment visually grows day by day.
+  if (s === 'in progress') return todayStr;
+  // Other non-closed, not yet past plan: respect an explicit actualEnd
+  // (rare for not-started tasks), else empty (no actual bar).
+  return t.actualEnd || '';
 }
 
 function getScheduleStatus(t) {
