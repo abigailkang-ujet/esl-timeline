@@ -1812,8 +1812,30 @@ function buildTimeline(tasks, teamFilter) {
     } else if (!hasActual && sd && ed) {
       // Case 1 — plan-only single bar (legacy class .gantt-bar)
       const left = dayToPx(dayOffset(sd));
-      const width = Math.max(3, dayToPx(dayOffset(ed)) - left);
+      const planEdPx_c1 = dayToPx(dayOffset(ed));
+      const width = Math.max(3, planEdPx_c1 - left);
       ganttInner += seg(left, width, colorVar, 'gantt-bar', planLabel);
+
+      // Sub-case (2026-05-27): non-closed task whose plan end has passed →
+      // tack on a Late hatch from planEnd to today. Covers Blocked / To Do /
+      // Untriaged / "Late Start" tasks that have no Jira actual data but
+      // are visually overdue. In Progress tasks go through the hasActual
+      // branch below (effectiveActualEnd returns today for them).
+      var statusLc_c1 = (t.status || '').toLowerCase().trim();
+      var isClosed_c1 = /closed|done|complete/.test(statusLc_c1);
+      if (!isClosed_c1 && ed < today) {
+        const todayPx_c1     = dayToPx(dayOffset(today));
+        const overrunWidth_c1 = todayPx_c1 - planEdPx_c1;
+        if (overrunWidth_c1 > 0) {
+          ganttInner += seg(
+            planEdPx_c1,
+            overrunWidth_c1,
+            '',
+            'gantt-overrun',
+            'Late: ' + fmtShort(ed) + ' → today'
+          );
+        }
+      }
     } else if (hasActual) {
       // Case 2/3 — half-split
       if (sd && ed) {

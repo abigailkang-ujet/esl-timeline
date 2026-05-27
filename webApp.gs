@@ -656,22 +656,23 @@ function buildTimelineData() {
   });
 
   // ── Late-reason comments — fetch for any task whose overrun hatch would
-  // render in the frontend. Three overrun shapes (string compare works on
-  // ISO yyyy-MM-dd dates):
-  //   1. closed late          : actualEnd > planEnd
-  //   2. closed late, no actualEnd: resolvedAt > planEnd (Jira fallback)
-  //   3. in progress past plan: today > planEnd (matches the always-ongoing
-  //      hatch behavior — equal-date tasks like PLAN 5/22 / ACTUAL 5/22
-  //      were silently excluded before because actualEnd === planEnd)
+  // render in the frontend. Mirrors the index.html rendering criterion:
+  //   - Closed task: hatch when actualEnd > planEnd (or resolvedAt > planEnd
+  //     as a Jira fallback when actualEnd is missing)
+  //   - Anything else (In Progress / Blocked / To Do / Untriaged / "Late
+  //     Start"): hatch when today > planEnd — the task hasn't reached
+  //     completion yet and the plan deadline has passed, so we want
+  //     late-reason notes available
+  // ISO yyyy-MM-dd strings compare lexically as dates.
   var lateKeys = [];
   var todayStr = Utilities.formatDate(new Date(), _ssTimeZone_(), 'yyyy-MM-dd');
   tasks.forEach(function(t) {
     if (!t.end) return;
     var status = String(t.status || '').toLowerCase().trim();
-    var isOverrun =
-         (t.actualEnd && t.actualEnd > t.end)
-      || (t.resolvedAt && t.resolvedAt > t.end && /closed|done|complete/.test(status))
-      || (status === 'in progress' && todayStr > t.end);
+    var isClosed = /closed|done|complete/.test(status);
+    var isOverrun = isClosed
+      ? ((t.actualEnd && t.actualEnd > t.end) || (t.resolvedAt && t.resolvedAt > t.end))
+      : (todayStr > t.end);
     if (isOverrun) {
       var k = extractJiraKey(t.epicUrl);
       if (k) lateKeys.push(k);
