@@ -1821,6 +1821,11 @@ function buildTimeline(tasks, teamFilter) {
       // Untriaged / "Late Start" tasks that have no Jira actual data but
       // are visually overdue. In Progress tasks go through the hasActual
       // branch below (effectiveActualEnd returns today for them).
+      //
+      // Inline style overrides .gantt-overrun's default "bottom-half" geometry
+      // (top:50% / height:6px, no transform — meant for the dual-bar mode
+      // where it sits next to a plan-grey strip) so the hatch matches the
+      // plan bar's 10px full-height vertical centering here.
       var statusLc_c1 = (t.status || '').toLowerCase().trim();
       var isClosed_c1 = /closed|done|complete/.test(statusLc_c1);
       if (!isClosed_c1 && ed < today) {
@@ -1830,7 +1835,7 @@ function buildTimeline(tasks, teamFilter) {
           ganttInner += seg(
             planEdPx_c1,
             overrunWidth_c1,
-            '',
+            'top:50%;transform:translateY(-50%);height:10px;border-top-right-radius:10px;border-bottom-right-radius:10px;',
             'gantt-overrun',
             'Late: ' + fmtShort(ed) + ' → today'
           );
