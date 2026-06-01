@@ -447,6 +447,7 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 | Bar hover date label clipped on narrow bars | `.gantt-bar` etc. had `overflow: hidden` so the centered `.bar-label` was cropped to the bar's width | Drop `overflow: hidden` on the bar segments; rely on stacked text-shadow (`0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55)`) so the label remains legible when it extends past the bar edges. |
 | Relates link almost invisible on screen | Style 2 spec used `dasharray '1 3'` + `stroke-width 1.2` + `opacity 0.7` — dots too small and faint | (2026-05-07) Bumped to `stroke-width 1.8`, `stroke-linecap round`, `dasharray '0.1 5'` (round-capped circles), `opacity 0.95`. Still distinct from amber dashed Blocks. |
 | setupDailyTrigger shows spinner forever | `getUi().alert()` pops up on spreadsheet tab, not editor tab | Normal — check spreadsheet tab for the alert popup |
+| Show Dependencies ON kills every row hover / bar label / status-dot expand | `#dep-svg` overlay (z-index:10, sized to full table) had no `pointer-events:none` on the container, so the SVG box itself intercepted pointer events on the table beneath. Earlier comment claimed "empty areas pass through" but that's not how the SVG CSS box behaves once it has explicit width/height. | (2026-05-27) `pointer-events:none` on the SVG container; inner hit paths keep `pointer-events:stroke` so dep-line `<title>` tooltips still work. |
 
 ---
 
