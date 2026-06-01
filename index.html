@@ -1493,7 +1493,7 @@ function buildPrdAlert() {
   // Collect overdue + upcoming items into a single list
   const items = [];
   ALL_TASKS.forEach(function(t) {
-    var state = getPrdState(t.prd);
+    var state = getPrdState(t.prd, t.prdRequirement);
     if (state === 'na' || state === 'done') return;
     const s = parseDate(t.start);
     if (!s) return;
@@ -1693,7 +1693,7 @@ function buildTimeline(tasks, teamFilter) {
   function buildTaskRow(t, color, showTeamBorder) {
     const sd = parseDate(t.start), ed = parseDate(t.end), id = parseDate(t.ideal);
     const isAtRisk = ed && id && ed > id;
-    var prdState = getPrdState(t.prd);
+    var prdState = getPrdState(t.prd, t.prdRequirement);
     var prdBadge;
     if (!t.pm || prdState === 'na') {
       prdBadge = '<span style="color:#475569">-</span>';
@@ -2052,7 +2052,14 @@ function buildTimeline(tasks, teamFilter) {
   return container;
 }
 
-function getPrdState(prd) {
+function getPrdState(prd, prdRequirement) {
+  // Jira "PRD requirement" customfield_11089 override: when the ticket's
+  // PRD requirement is "None", PRD is explicitly not needed → force 'na'.
+  // This hides the row from the PRD Needed alert and renders the PRD column
+  // as "-" regardless of whatever value Notion's "PRD (Done? Y/N)" carries.
+  if (prdRequirement && String(prdRequirement).trim().toLowerCase() === 'none') {
+    return 'na';
+  }
   if (!prd) return 'missing';
   var v = prd.trim().toLowerCase();
   if (v === '-') return 'na';
@@ -2064,8 +2071,8 @@ function getPrdState(prd) {
 }
 
 function isClosed(t) { return t && t.status === 'Closed'; }
-function prdIsDone(t) { return !!(t && t.pm) && getPrdState(t.prd) === 'done'; }
-function prdIsRequired(t) { return !!(t && t.pm) && getPrdState(t.prd) !== 'na'; }
+function prdIsDone(t) { return !!(t && t.pm) && getPrdState(t.prd, t.prdRequirement) === 'done'; }
+function prdIsRequired(t) { return !!(t && t.pm) && getPrdState(t.prd, t.prdRequirement) !== 'na'; }
 
 // Wrap a PRD badge in an anchor pointing at the PRD page when prdUrl exists.
 // Returns the original badge HTML unchanged when prdUrl is empty (e.g. the

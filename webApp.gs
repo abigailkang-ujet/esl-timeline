@@ -29,7 +29,8 @@ const JIRA_FIELD_START     = 'customfield_11014';   // Jira Start Date custom fi
 const JIRA_FIELD_END       = 'duedate';
 const JIRA_FIELD_COMMITTED = 'customfield_11900';   // Jira Committed Date custom field (write target for pushIdealToJira)
 const JIRA_FIELD_TSHIRT    = 'customfield_11190';   // Jira T-shirt size estimation (compared against Notion Eng Size)
-const JIRA_CACHE_KEY       = 'esl-jira-live-v5';    // bump on parser/shape change (v5: added summary)
+const JIRA_FIELD_PRD_REQ   = 'customfield_11089';   // Jira "PRD requirement" select — "None" means PRD not required (hide from PRD Needed, render "-")
+const JIRA_CACHE_KEY       = 'esl-jira-live-v6';    // bump on parser/shape change (v6: added prdRequirement)
 const JIRA_CACHE_TTL       = 300;                    // 5 minutes
 const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v2';  // bumped 2026-05-26 (filter widened + invisible-char strip)
 const JIRA_LATE_COMMENTS_CACHE_TTL = 300;            // 5 minutes
@@ -605,6 +606,7 @@ function buildTimelineData() {
       pmo:          n.pmo          || '',
       prd:          n.prd          || '',
       prdUrl:       n.prdUrl       || '',
+      prdRequirement: '',           // populated by fetchJiraLive override below ("None" = PRD not required)
       engSize:      n.engSize      || '',
       pmSize:       n.pmSize       || '',
       comment:      n.comment      || '',
@@ -648,6 +650,10 @@ function buildTimelineData() {
     // back to whatever Notion synced if Jira's field is empty (so we don't
     // drop data when the customfield happens to be blank on an issue).
     if (liveEntry.tshirt) t.engSize = liveEntry.tshirt;
+    // PRD requirement (Jira customfield_11089). "None" means PRD not required
+    // for this ticket → frontend hides it from the PRD Needed alert and
+    // renders the PRD column as "-" via getPrdState() na branch.
+    t.prdRequirement = liveEntry.prdRequirement || '';
     // Override Notion-synced blocking / blockedBy with Jira-derived. Relates is
     // Jira-only (Notion has no equivalent), so it just copies the parsed list.
     if (liveEntry.blocking)  t.blocking  = liveEntry.blocking;
@@ -786,7 +792,7 @@ function fetchJiraLive(jiraKeys) {
   var url = 'https://' + JIRA_DOMAIN + '/rest/api/3/search/jql';
   var bodyJson = JSON.stringify({
     jql: jql,
-    fields: ['status', 'summary', JIRA_FIELD_START, JIRA_FIELD_END, JIRA_FIELD_TSHIRT,
+    fields: ['status', 'summary', JIRA_FIELD_START, JIRA_FIELD_END, JIRA_FIELD_TSHIRT, JIRA_FIELD_PRD_REQ,
              'statuscategorychangedate', 'resolutiondate', 'issuelinks'],
     maxResults: 200
   });
@@ -815,6 +821,7 @@ function fetchJiraLive(jiraKeys) {
         start:           f[JIRA_FIELD_START] || '',
         end:             f[JIRA_FIELD_END]   || '',
         tshirt:          _extractTshirtValue_(f[JIRA_FIELD_TSHIRT]),
+        prdRequirement:  _extractTshirtValue_(f[JIRA_FIELD_PRD_REQ]),  // reuse generic select extractor; "None" = PRD not required
         statusChangedAt: f.statuscategorychangedate || '',
         resolvedAt:      f.resolutiondate           || '',
         blocking:  [],   // Jira keys this task blocks (Blocks type, outward)
