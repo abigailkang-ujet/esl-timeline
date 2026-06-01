@@ -2136,17 +2136,24 @@ function effectiveActualEnd(t) {
   if (isClosed) {
     return t.actualEnd || t.resolvedAt || '';
   }
+  // Work has begun (real actualStart) but task isn't closed: the actual bar
+  // should extend to today regardless of current status. Covers Blocked /
+  // Late Start / On Hold / On Review / In Progress / anything-in-flight where
+  // status changed mid-work — without this, a Blocked task whose plan end is
+  // still in the future falls through to "no actual bar" and only the plan
+  // segment renders, hiding the fact that work already started.
+  if (t.actualStart) return todayStr;
   // Any non-closed task whose plan end has already passed: force "today"
   // so the bar + late hatch reach the current moment. Bypasses a stale
   // t.actualEnd (e.g. Jira duedate equal to planEnd that would otherwise
-  // stop the bar short of today). Covers In Progress, Blocked, To Do,
-  // Untriaged, Late-Start — anything that isn't formally finished.
+  // stop the bar short of today). Covers tasks with no actualStart whose
+  // plan window has elapsed (e.g. a To Do that never got started).
   if (t.end && todayStr > t.end) return todayStr;
   // In Progress + still on schedule (today <= planEnd): bar still reaches
   // today so the actual segment visually grows day by day.
   if (s === 'in progress') return todayStr;
-  // Other non-closed, not yet past plan: respect an explicit actualEnd
-  // (rare for not-started tasks), else empty (no actual bar).
+  // Other non-closed, not yet past plan, no actualStart: respect an
+  // explicit actualEnd if any, else empty (no actual bar).
   return t.actualEnd || '';
 }
 
