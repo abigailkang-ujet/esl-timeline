@@ -2055,13 +2055,20 @@ function buildTimeline(tasks, teamFilter) {
 }
 
 function getPrdState(prd, prdRequirement) {
-  // Jira "PRD requirement" customfield_11089 override: when the ticket's
-  // PRD requirement is "None", PRD is explicitly not needed → force 'na'.
-  // This hides the row from the PRD Needed alert and renders the PRD column
-  // as "-" regardless of whatever value Notion's "PRD (Done? Y/N)" carries.
-  if (prdRequirement && String(prdRequirement).trim().toLowerCase() === 'none') {
-    return 'na';
-  }
+  // Jira "PRD requirement" customfield_11089 is the authoritative signal.
+  // Dropdown options: None / Required / Optional. In this Jira config the
+  // "None" option clears the field — API returns null for both "explicitly
+  // None" and "never touched", indistinguishable. So we treat any empty/
+  // missing/none value as 'na' (PRD not required → hidden from PRD Needed,
+  // PRD column renders "-").
+  //
+  // Caveat: tickets that haven't had this Jira field touched are also
+  // treated as 'na'. To surface a ticket in PRD Needed, set its Jira
+  // "PRD requirement" to "Required" or "Optional". Notion's PRD (Done? Y/N)
+  // still drives done/draft/review/todo classification once we're past
+  // this Jira gate (i.e. only for Required/Optional tickets).
+  var req = String(prdRequirement || '').trim().toLowerCase();
+  if (!req || req === 'none') return 'na';
   if (!prd) return 'missing';
   var v = prd.trim().toLowerCase();
   if (v === '-') return 'na';
