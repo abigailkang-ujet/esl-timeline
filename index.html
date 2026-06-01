@@ -361,11 +361,13 @@
   .tshirt-badge:hover .tshirt-letter { display: none; }
   .tshirt-badge:hover .tshirt-word { display: inline; }
   .tshirt-badge:hover { padding: 2px 9px; }
+  .tshirt-XS { color: #bfdbfe; background: rgba(191,219,254,0.06); border-color: rgba(191,219,254,0.20); }
   .tshirt-S  { color: #93c5fd; background: rgba(147,197,253,0.08); border-color: rgba(147,197,253,0.25); }
   .tshirt-M  { color: #60a5fa; background: rgba(96,165,250,0.12);  border-color: rgba(96,165,250,0.30); }
   .tshirt-L  { color: #3b82f6; background: rgba(59,130,246,0.16);  border-color: rgba(59,130,246,0.35); }
   .tshirt-XL { color: #2563eb; background: rgba(37,99,235,0.20);   border-color: rgba(37,99,235,0.40); }
   .tshirt-none { color: var(--text-muted); }
+  body.light-mode .tshirt-XS { color: #3b82f6; }
   body.light-mode .tshirt-S  { color: #2563eb; }
   body.light-mode .tshirt-M  { color: #1d4ed8; }
   body.light-mode .tshirt-L  { color: #1e40af; }
@@ -2321,15 +2323,20 @@ function buildTshirtBadge(size) {
   var lc  = raw.toLowerCase();
 
   // Match by leading token so all of these work transparently:
-  //   "S", "Small", "S - Small"          → S
-  //   "M", "Medium", "M - Medium", "Med" → M
-  //   "L", "Large", "L - Large"          → L
-  //   "XL", "X-Large", "Extra Large"     → XL
-  // XL is checked first so "X…" doesn't get caught by the bare-L branch
-  // below ("X" itself starts with 'x', not 'l', but "X-Large" / "XL - Extra
-  // Large" formats are common enough to be worth an explicit pattern).
+  //   "XS", "X-Small", "XS - Extra Small" → XS
+  //   "S", "Small", "S - Small"           → S
+  //   "M", "Medium", "M - Medium", "Med"  → M
+  //   "L", "Large", "L - Large"           → L
+  //   "XL", "X-Large", "XL - Extra Large" → XL
+  // XS is checked BEFORE XL because both start with 'x' — without this,
+  // "XS - Extra Small" matched neither (XL regex required 'l' after the x;
+  // bare-S branch never reached because charAt(0) was 'x') and fell through
+  // to raw text rendering. XL stays second so "X-Large" / "Extra Large"
+  // still resolve. The remaining single-letter branches are unchanged.
   var info = null;
-  if (/^xl\b/.test(lc) || /^x[\s\-]?l/.test(lc) || lc.indexOf('extra') === 0) {
+  if (/^xs\b/.test(lc) || /^x[\s\-]?s/.test(lc)) {
+    info = { k: 'XS', w: 'Extra Small' };
+  } else if (/^xl\b/.test(lc) || /^x[\s\-]?l/.test(lc) || lc.indexOf('extra large') === 0) {
     info = { k: 'XL', w: 'Extra Large' };
   } else if (lc.charAt(0) === 's') {
     info = { k: 'S',  w: 'Small' };
