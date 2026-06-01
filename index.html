@@ -1798,7 +1798,12 @@ function buildTimeline(tasks, teamFilter) {
       if (hasActual) {
         var aL = dayToPx(dayOffset(actSd_));
         var aW = Math.max(3, dayToPx(dayOffset(actEd_)) - aL);
-        var isOngoing2 = (t.status || '').toLowerCase().trim() === 'in progress';
+        // Ongoing = task is in flight with no recorded actualEnd. Covers
+        // In Progress / Blocked / Late Start / On Hold — anything where we
+        // synthesized "today" as the bar's right edge.
+        var statusLc2  = (t.status || '').toLowerCase().trim();
+        var isClosed2  = /closed|done|complete/.test(statusLc2);
+        var isOngoing2 = !isClosed2 && !t.actualEnd;
         var actEnd2    = isOngoing2 ? 'ongoing' : fmtShort(actEd_);
         var aLbl       = 'Actual: ' + fmtShort(actSd_) + ' → ' + actEnd2;
         ganttInner += '<div class="gantt-multi scen-actual" ' +
@@ -1851,9 +1856,15 @@ function buildTimeline(tasks, teamFilter) {
       const actLeft  = dayToPx(dayOffset(actSd_));
       const actEdPx  = dayToPx(dayOffset(actEd_));
       const planEdPx = ed ? dayToPx(dayOffset(ed)) : null;
-      // In Progress = ongoing regardless of any t.actualEnd value (which can
-      // come from Jira's duedate and is unreliable for not-yet-done tasks).
-      const isOngoing = (t.status || '').toLowerCase().trim() === 'in progress';
+      // Ongoing = task is in flight with no recorded actualEnd. Covers
+      // In Progress / Blocked / Late Start / On Hold — anything where we
+      // synthesized "today" as the bar's right edge. Earlier this was
+      // gated on `status === 'in progress'` only, which silently killed the
+      // gradient + "ongoing" label for Blocked tasks rendered after the
+      // 2026-06-01 actualStart catch-all.
+      const statusLcDual = (t.status || '').toLowerCase().trim();
+      const isClosedDual = /closed|done|complete/.test(statusLcDual);
+      const isOngoing = !isClosedDual && !t.actualEnd;
       const actClass = 'gantt-actual' + (isOngoing ? ' in-progress-ongoing' : '');
       // For ongoing tasks (In Progress + no recorded actualEnd) the bar visually
       // ends at today as a placeholder, but the label text must NOT claim
