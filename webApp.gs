@@ -698,6 +698,64 @@ function extractJiraKey(epicUrl) {
 }
 
 /**
+ * One-shot discovery snippet — run from the Apps Script editor.
+ * Fetches every field on a single Jira issue (pass any real key, e.g. "AGX-123")
+ * and logs the field ID + display name for every customfield whose name or
+ * value mentions "PRD" or "requirement", so we can wire the right customfield
+ * into fetchJiraLive. Same pattern used to discover JIRA_FIELD_TSHIRT
+ * (customfield_11190) back in May 2026.
+ */
+function _findPrdRequirementField(jiraKey) {
+  jiraKey = jiraKey || 'AGX-1'; // caller can override; pick any real key
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) { Logger.log('no jiraToken'); return; }
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  // Step 1: fetch the issue with ALL fields, log every customfield whose
+  // value is non-empty (so we can sniff field IDs against the Jira UI).
+  var issueUrl = 'https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + jiraKey;
+  var resp = UrlFetchApp.fetch(issueUrl, {
+    method: 'get',
+    headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  if (resp.getResponseCode() !== 200) {
+    Logger.log('HTTP ' + resp.getResponseCode() + ' fetching ' + jiraKey);
+    Logger.log(resp.getContentText().slice(0, 500));
+    return;
+  }
+  var f = JSON.parse(resp.getContentText()).fields || {};
+
+  // Step 2: fetch the global field schema so we can map customfield_xxxxx → display name
+  var schemaResp = UrlFetchApp.fetch('https://' + JIRA_DOMAIN + '/rest/api/3/field', {
+    method: 'get',
+    headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  var nameById = {};
+  if (schemaResp.getResponseCode() === 200) {
+    JSON.parse(schemaResp.getContentText()).forEach(function(field) {
+      nameById[field.id] = field.name;
+    });
+  }
+
+  Logger.log('=== Non-empty customfields on ' + jiraKey + ' ===');
+  Object.keys(f).filter(function(k){ return /^customfield_/.test(k); }).forEach(function(k){
+    var v = f[k];
+    if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) return;
+    var displayName = nameById[k] || '(unknown)';
+    Logger.log(k + '  [' + displayName + ']  →  ' + JSON.stringify(v).slice(0, 200));
+  });
+
+  Logger.log('=== Fields whose NAME contains "PRD" or "requirement" ===');
+  Object.keys(nameById).forEach(function(id){
+    if (/prd|requirement/i.test(nameById[id])) {
+      Logger.log(id + '  →  ' + nameById[id] + '  (current value: ' + JSON.stringify(f[id] || '∅').slice(0, 150) + ')');
+    }
+  });
+}
+
+/**
  * Bulk-fetch live status + start + end for a list of Jira keys.
  * Returns { KEY: { status, start, end } }. Returns {} on any failure
  * (no token, non-200, network throw, parse error) so callers fall back
