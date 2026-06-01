@@ -759,6 +759,21 @@ function _findPrdRequirementField(jiraKey) {
       Logger.log(id + '  →  ' + nameById[id] + '  (current value: ' + JSON.stringify(f[id] || '∅').slice(0, 150) + ')');
     }
   });
+
+  // Reverse search: maybe the schema's "PRD requirement" customfield ID
+  // isn't the one actually storing the value. Grep every customfield's
+  // current VALUE for the dropdown options ("Required"/"Optional"/"None")
+  // — whichever field's value matches what the user sees in the UI is the
+  // real ID we should be wiring.
+  Logger.log('=== Customfields whose VALUE contains "Required" / "Optional" / "None" ===');
+  Object.keys(f).filter(function(k){ return /^customfield_/.test(k); }).forEach(function(k){
+    var v = f[k];
+    if (v === null || v === undefined) return;
+    var s = JSON.stringify(v);
+    if (/required|optional|none/i.test(s)) {
+      Logger.log(k + '  [' + (nameById[k] || '?') + ']  →  ' + s.slice(0, 200));
+    }
+  });
 }
 
 /**
