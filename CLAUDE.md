@@ -344,7 +344,7 @@ Late-task (overrun / red-hatched Gantt segment) gets a click + hover affordance 
 
 ### Tooltip (slimmed 2026-05-07)
 - **Row tooltip fields (final)**: task title, **Allocation**, **Effort**, **Blocking**, **Blocked by**. Everything else (Lead, dates, Ideal, Risk, Schedule, Status, PM, PMO, PRD) is already visible elsewhere on the row — column, team header, schedule chip, status dot, PRD badge, or bar hover label — so duplicating it here would just be noise.
-- **Delay**: 150ms (was `8000ms` until 2026-06-11). Two timer paths both at 150: the row `mouseenter` initial timer, and the name-cell `mouseleave` restart. The earlier 8s "deliberate hover" delay was dropped because the tooltip content is now small (Allocation + Effort only) and doesn't obscure other rows, so a snappy reveal is preferable to making the user wait.
+- **Delay**: 3000ms (was `8000ms` until 2026-06-11). Two timer paths both at 3000: the row `mouseenter` initial timer, and the name-cell `mouseleave` restart. Dropped from the original 8s "deliberate hover" because the tooltip content is now small (Allocation + Effort only) and doesn't obscure other rows; 3s is a middle ground — 150ms was tried but felt too eager.
 - **Size**: max-width 300px, padding 10px 12px, font-size 12px.
 - **Smart positioning**: flips up/left automatically when near viewport edges
   ```javascript

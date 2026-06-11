@@ -1989,7 +1989,7 @@ function buildTimeline(tasks, teamFilter) {
     row.addEventListener('mouseenter', function() {
       tooltipTimer = setTimeout(function() {
         if (!onNameCell) showRowTooltip(row);
-      }, 150);
+      }, 3000);
     });
 
     // Task name cell: full name now renders inline via CSS hover (no tooltip).
@@ -2003,7 +2003,7 @@ function buildTimeline(tasks, teamFilter) {
       });
       nameCell.addEventListener('mouseleave', function() {
         onNameCell = false;
-        tooltipTimer = setTimeout(function() { if (!onNameCell) showRowTooltip(row); }, 150);
+        tooltipTimer = setTimeout(function() { if (!onNameCell) showRowTooltip(row); }, 3000);
       });
     }
 
