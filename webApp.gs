@@ -777,6 +777,82 @@ function _findPrdRequirementField(jiraKey) {
 }
 
 /**
+ * Start/Due-date sanity check — run from the Apps Script editor (no deploy needed).
+ *
+ * Confirms that JIRA_FIELD_START (customfield_11014) and JIRA_FIELD_END (duedate)
+ * are STILL the fields that hold Start / Due on live issues. A field's screen
+ * position can change without breaking anything — only the field ID matters to
+ * the REST API — so this verifies the IDs, not the layout.
+ *
+ * For each sample key it logs the value currently wired into fetchJiraLive, then
+ * (1) lists every DATE-typed field on the issue with its display name + value, and
+ * (2) reverse-searches the field schema for any field whose name mentions
+ * "start" / "due" / "target" — so if Start date ever moved to a NEW custom field
+ * ID, it shows up here and we know what to repoint JIRA_FIELD_START to.
+ *
+ * Pass your own keys, or leave blank to use a cross-project default set.
+ */
+function _checkStartDueDateFields(keys) {
+  keys = (keys && keys.length) ? keys
+       : ['WEB-2539', 'CHAT-2430', 'ESC-2922', 'AGX-389', 'CALL-4352'];  // In Progress samples likely to carry dates
+  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  if (!token) { Logger.log('no jiraToken in Script Properties'); return; }
+  var creds = Utilities.base64Encode(JIRA_EMAIL + ':' + token);
+
+  // Field schema → { id: {name, type} }. type 'date'/'datetime' flags date fields.
+  var meta = {};
+  var schemaResp = UrlFetchApp.fetch('https://' + JIRA_DOMAIN + '/rest/api/3/field', {
+    method: 'get',
+    headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  if (schemaResp.getResponseCode() === 200) {
+    JSON.parse(schemaResp.getContentText()).forEach(function(field) {
+      meta[field.id] = { name: field.name, type: (field.schema && field.schema.type) || '' };
+    });
+  }
+
+  // One-time: which field IDs does the schema think are named Start/Due/Target?
+  Logger.log('=== Schema fields whose NAME mentions start / due / target ===');
+  Object.keys(meta).forEach(function(id) {
+    if (/start|due|target/i.test(meta[id].name)) {
+      Logger.log(id + '  →  "' + meta[id].name + '"  (type: ' + meta[id].type + ')'
+                 + (id === JIRA_FIELD_START ? '   ← currently wired as JIRA_FIELD_START' : '')
+                 + (id === JIRA_FIELD_END   ? '   ← currently wired as JIRA_FIELD_END'   : ''));
+    }
+  });
+
+  keys.forEach(function(key) {
+    var resp = UrlFetchApp.fetch('https://' + JIRA_DOMAIN + '/rest/api/3/issue/' + encodeURIComponent(key), {
+      method: 'get',
+      headers: { Authorization: 'Basic ' + creds, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+    if (resp.getResponseCode() !== 200) {
+      Logger.log('\n' + key + ': HTTP ' + resp.getResponseCode() + ' — ' + resp.getContentText().slice(0, 200));
+      return;
+    }
+    var f = JSON.parse(resp.getContentText()).fields || {};
+
+    Logger.log('\n===== ' + key + '  (' + ((f.status && f.status.name) || '?') + ') =====');
+    // What fetchJiraLive reads today:
+    Logger.log('  JIRA_FIELD_START (' + JIRA_FIELD_START + ') = ' + JSON.stringify(f[JIRA_FIELD_START] || '∅'));
+    Logger.log('  JIRA_FIELD_END   (' + JIRA_FIELD_END   + ') = ' + JSON.stringify(f[JIRA_FIELD_END]   || '∅'));
+
+    // Every DATE-typed field on the issue with a value — so if Start lives in a
+    // different field now, its value (and ID) is visible here.
+    Logger.log('  -- all date-typed fields with a value --');
+    Object.keys(f).forEach(function(id) {
+      var t = meta[id] && meta[id].type;
+      if (t !== 'date' && t !== 'datetime') return;
+      var v = f[id];
+      if (v === null || v === undefined || v === '') return;
+      Logger.log('    ' + id + '  [' + (meta[id].name || '?') + ']  =  ' + JSON.stringify(v));
+    });
+  });
+}
+
+/**
  * Bulk-fetch live status + start + end for a list of Jira keys.
  * Returns { KEY: { status, start, end } }. Returns {} on any failure
  * (no token, non-200, network throw, parse error) so callers fall back
