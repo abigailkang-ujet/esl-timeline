@@ -214,18 +214,19 @@
     padding: 0 10px; font-size: 14px; border-bottom: 1px solid var(--border);
     white-space: nowrap; background: var(--bg-elevated);
   }
-  .sticky-pri  { position: sticky; left: 0;    z-index: 5; }
-  .sticky-key  { position: sticky; left: 42px; z-index: 5; }
-  .sticky-task { position: sticky; left: 134px; z-index: 5; }
-  /* Key column box must stay ≤ its 92px header width so the Task sticky
-     offset (42 + 92 = 134px) lines up exactly — tighter padding keeps a
-     9-10 char key chip inside. Equal specificity with the
-     `table.timeline td.info-col` padding rule, so order matters: this
-     comes later and wins. */
+  /* Sticky offsets are DYNAMIC: table auto-layout treats th width as a hint,
+     so real column widths drift from any hardcoded left values — a fixed
+     offset leaves a gap (underlying columns bleed through) or an overlap.
+     syncStickyOffsets() measures the rendered th widths after every render /
+     column toggle and sets the CSS vars on the table. The fallbacks only
+     cover the instant before first measurement. */
+  .sticky-pri  { position: sticky; left: 0; z-index: 5; }
+  .sticky-key  { position: sticky; left: var(--sticky-key-left, 42px); z-index: 5; }
+  .sticky-task { position: sticky; left: var(--sticky-task-left, 134px); z-index: 5; }
+  /* Tighter padding keeps a 9-10 char key chip compact. Equal specificity
+     with the `table.timeline td.info-col` padding rule, so order matters:
+     this comes later and wins. */
   table.timeline td.sticky-key { padding: 0 6px; }
-  /* When the Key column is collapsed (10px strip), pull Task's sticky offset in. */
-  th.sticky-key.col-hidden + th.sticky-task,
-  td.sticky-key.col-hidden + td.sticky-task { left: 52px; }
   .task-row:hover .sticky-pri,
   .task-row:hover .sticky-key,
   .task-row:hover .sticky-task { z-index: 10; }
@@ -384,7 +385,11 @@
   body.light-mode .tshirt-XL { color: #1e3a8a; }
 
   .date-cell { color: var(--text-secondary); font-size: 13px; font-variant-numeric: tabular-nums; }
-  .at-risk td.info-col { background: rgba(244,112,103,0.04) !important; }
+  /* At-risk tint layered over the opaque row bg (not bare translucent red):
+     sticky Pri/Key/Task cells float above other columns during horizontal
+     scroll, so any see-through background lets the covered columns' text
+     bleed through. */
+  .at-risk td.info-col { background: linear-gradient(rgba(244,112,103,0.04), rgba(244,112,103,0.04)), var(--bg-elevated) !important; }
   .at-risk .task-name-cell a, .at-risk .task-name-cell { color: var(--red); }
 
   .prd-badge {
@@ -946,7 +951,7 @@
   body.light-mode .pri-default { background: rgba(0,0,0,0.06); }
   body.light-mode .task-name-cell a:hover { color: var(--accent); }
   body.light-mode .filter-btn.active { color: var(--accent); }
-  body.light-mode .at-risk td.info-col { background: rgba(244,112,103,0.06) !important; }
+  body.light-mode .at-risk td.info-col { background: linear-gradient(rgba(244,112,103,0.06), rgba(244,112,103,0.06)), var(--bg-elevated) !important; }
   body.light-mode .prd-alert {
     background: rgba(234,88,12,0.07);
     border-color: rgba(234,88,12,0.3);
@@ -1308,6 +1313,22 @@ function toggleCol(col) {
   applyHiddenCols();
 }
 
+// Measure the rendered widths of the sticky Pri / Key header cells and pin
+// the Key / Task sticky offsets to them. Auto table layout treats th width
+// as a hint only, so hardcoded offsets drift (gap or overlap between the
+// sticky columns during horizontal scroll).
+function syncStickyOffsets() {
+  var tbl = document.querySelector('table.timeline');
+  if (!tbl) return;
+  var pri = tbl.querySelector('th.sticky-pri');
+  if (!pri) return;
+  var key = tbl.querySelector('th.sticky-key');
+  var priW = pri.getBoundingClientRect().width;
+  var keyW = key ? key.getBoundingClientRect().width : 0;
+  tbl.style.setProperty('--sticky-key-left', priW + 'px');
+  tbl.style.setProperty('--sticky-task-left', (priW + keyW) + 'px');
+}
+
 function applyHiddenCols() {
   document.querySelectorAll('[data-col]').forEach(function(el) {
     var col = el.getAttribute('data-col');
@@ -1316,6 +1337,7 @@ function applyHiddenCols() {
       el.title = hiddenCols.has(col) ? 'Click to show' : 'Click to hide';
     }
   });
+  syncStickyOffsets();
 }
 
 function attachColToggle() {
@@ -3317,6 +3339,11 @@ document.addEventListener('keydown', function(e) {
 
 loadData();
 maybeAutoTour();
+
+// Column widths can shift after the initial measurement (webfont swap,
+// window resize) — re-pin the sticky offsets when that happens.
+window.addEventListener('resize', syncStickyOffsets);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncStickyOffsets);
 </script>
 <div class="footer-credit">
   Built and maintained by Abigail Kang ·
