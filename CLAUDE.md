@@ -487,8 +487,12 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 
 - **GitHub**: `github.com/abigailkang-ujet/esl-timeline` (initialized 2026-04-23, single `main` branch, solo repo).
 - **Docs layout**: design specs live under `docs/superpowers/specs/`, implementation plans under `docs/superpowers/plans/` (both committed to main).
-- **Deploy**: git commit ≠ live. After merging to `main`, manually paste changed files into the Apps Script editor and use **Deploy → Manage deployments → Edit → New version** to preserve the URL.
-- **No test framework**. Verification is static (grep/read) + post-deploy visual checks.
+- **Deploy**: git commit ≠ live. Three paths, in order of preference:
+  1. **clasp direct (2026-07-22, verified)**: the deploy clone `~/Desktop/esl-timeline` holds `.clasp.json` (scriptId `1eBNrpBO…`; the main repo deliberately has none). `git pull origin main && clasp push -f && clasp deploy -i AKfycbyWEzYul… -d "…"`. The `-i` deployment ID is mandatory — it makes a New Version on the existing deployment and preserves the URL. The clone lags behind main, so always pull first (and push to GitHub before that). Full recipe in `.claude/commands/deploy.md`.
+  2. GAS Commander "Deploy to Apps Script" button (pulls GitHub → pushes to Apps Script).
+  3. Manual paste into the Apps Script editor + Deploy → Manage deployments → Edit → New version.
+- **No test framework**, but there IS a local render harness for `index.html`: replace the `<?!= timelineData ?>` scriptlet with a sample `{tasks:[…], updatedAt:…}` JSON (python one-liner), serve the file over `python3 -m http.server` and open it in a browser. Caveat: `file://` pages don't execute scripts in the Claude browser pane — must serve over HTTP. Used 2026-07-22 to catch the sticky-offset gap before deploy.
+- **Live-URL verification is human-only**: curl gets bounced to UJET SSO, and script.google.com is blocked in the Claude browser pane — after deploying, ask the user to refresh and eyeball.
 
 ## Current Status (2026-07-22)
 
