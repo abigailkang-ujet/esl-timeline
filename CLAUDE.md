@@ -273,6 +273,15 @@ Located in ctrlRow2 (second control row), next to Search.
 ### Default sort (2026-05-19)
 `activeSort` initial value changed from `'default'` (sheet row order) to `'start'` — tasks within each team sort by plan start ASC on first load. flatView still defaults to false so teams stay grouped.
 
+### Jira Key column (2026-07-22)
+New "Key" column between Pri and Task — always-visible Jira epic key, replacing the old hover-revealed `.task-jira-key` badge inside the task name cell (removed same day).
+
+- **Rendering**: `.jira-key-chip` (monospace 10px, muted, bordered — same look as the old hover badge). Tasks with `t.epicUrl` render the chip as an `<a target="_blank">` opening Jira; tasks with a key but no URL render a plain span; pre-Jira placeholder tasks render `-`.
+- **Sticky layout**: three sticky columns now — `.sticky-pri` (left 0, 42px), `.sticky-key` (left 42px, 92px), `.sticky-task` (left 134px). The Key cell's horizontal padding is tightened to 6px (`table.timeline td.sticky-key` — same specificity as the `td.info-col` padding rule, declared later so it wins) so a 9-10 char key chip stays inside the 92px box and never slides under the Task cell during horizontal scroll.
+- **Collapsible** (`data-col="jira"`): when collapsed to the 10px strip, a sibling CSS rule (`.sticky-key.col-hidden + .sticky-task { left: 52px }`) pulls Task's sticky offset in so no gap opens.
+- Team-header base colspan bumped 9 → 10.
+- Search already matched `t.epic` before this column existed — no change needed.
+
 ### T-shirt Size column (2026-05-20)
 New column "Size" between Risk and Plan Start.
 
@@ -390,7 +399,7 @@ Late-task (overrun / red-hatched Gantt segment) gets a click + hover affordance 
 - Background: same as task rows (`--bg-elevated` dark / `--bg-card` light) — see "Row background" above. `border-left: 3px solid teamColor`, text in team color provide the only visual grouping cue.
 - **Inline meta (2026-05-07; PMO added later same day)**: header reads `<TEAM> (count) · Lead: <names> · PM: <names> · PMO: <names>`. Lead, PM, and PMO were per-task columns or tooltip rows; they're identical across tasks within a team in our data, so consolidating saved 180 px of table width that the Gantt area now uses, and frees the slim row tooltip from carrying PMO. The `teamPeople(teamTasks)` helper deduplicates leads, pms, and pmos; `t.pm` and `t.pmo` are split on commas first (multi-owner tasks). Inconsistent values across tasks (rare data drift) are comma-joined so nothing is hidden. Empty Lead / PM / PMO omits the corresponding label.
 - `team-count`, `team-people`, `team-people .role` CSS classes carry the visual styling — count and meta line are smaller / lighter than the team name, names use normal text-transform / letter-spacing (so proper nouns aren't UPPERCASED by the parent rule).
-- Team-header `colspan` base value: `8` (was 10 before Lead/PM removal). `+2 if showExtra` (Alloc, Status under team filter) and `+2 if showActual` (Act Start, Act End) modifiers unchanged.
+- Team-header `colspan` base value: `10` (8 after 2026-05-07 Lead/PM removal → 9 with the Size column 2026-05-20 → 10 with the Jira Key column 2026-07-22). `+2 if showExtra` (Alloc, Status under team filter) and `+2 if showActual` (Act Start, Act End) modifiers unchanged.
 - `hexAlpha(hex, a)` helper converts hex → `rgba(r,g,b,a)` (available but not used on header bg)
 
 ### Column Header (th)
@@ -479,7 +488,9 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **Deploy**: git commit ≠ live. After merging to `main`, manually paste changed files into the Apps Script editor and use **Deploy → Manage deployments → Edit → New version** to preserve the URL.
 - **No test framework**. Verification is static (grep/read) + post-deploy visual checks.
 
-## Current Status (2026-06-01)
+## Current Status (2026-07-22)
+
+- **Jira Key column** (2026-07-22): always-visible Key column between Pri and Task (sticky, collapsible, chip links to Jira). Replaces the hover-revealed `.task-jira-key` badge in the task name cell. Three sticky columns now: Pri 0/42px, Key 42/92px, Task 134px (52px when Key collapsed). Team-header base colspan 9 → 10.
 
 - 7 teams (CALL, SDK, CHAT, API, Email, AGX, DATA), ADX removed
 - **jira_url PK refactor complete** — Sheets schema fully on jira_url PK; `syncNotionToSheets.gs` simplified to clear+dump

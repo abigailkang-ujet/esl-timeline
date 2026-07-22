@@ -215,8 +215,19 @@
     white-space: nowrap; background: var(--bg-elevated);
   }
   .sticky-pri  { position: sticky; left: 0;    z-index: 5; }
-  .sticky-task { position: sticky; left: 42px; z-index: 5; }
+  .sticky-key  { position: sticky; left: 42px; z-index: 5; }
+  .sticky-task { position: sticky; left: 134px; z-index: 5; }
+  /* Key column box must stay ≤ its 92px header width so the Task sticky
+     offset (42 + 92 = 134px) lines up exactly — tighter padding keeps a
+     9-10 char key chip inside. Equal specificity with the
+     `table.timeline td.info-col` padding rule, so order matters: this
+     comes later and wins. */
+  table.timeline td.sticky-key { padding: 0 6px; }
+  /* When the Key column is collapsed (10px strip), pull Task's sticky offset in. */
+  th.sticky-key.col-hidden + th.sticky-task,
+  td.sticky-key.col-hidden + td.sticky-task { left: 52px; }
   .task-row:hover .sticky-pri,
+  .task-row:hover .sticky-key,
   .task-row:hover .sticky-task { z-index: 10; }
   td.task-name-cell {
     white-space: normal; min-width: 160px;
@@ -239,12 +250,10 @@
     overflow: visible;
     white-space: normal;
   }
-  /* Jira key badge — hidden by default, revealed on task name hover (same
-     trigger as the name expand-in-place). Sibling of .task-name-wrap so the
-     2-line clamp on the name doesn't hide it. */
-  .task-jira-key {
-    display: none;
-    margin-bottom: 4px;
+  /* Jira key chip — always-visible dedicated Key column between Pri and Task
+     (2026-07-22; replaces the old hover-revealed badge inside the name cell). */
+  .jira-key-chip {
+    display: inline-block;
     padding: 1px 6px;
     border-radius: 4px;
     font-family: ui-monospace, monospace;
@@ -254,9 +263,10 @@
     color: var(--text-muted);
     background: rgba(255,255,255,0.05);
     border: 1px solid var(--border);
-    width: fit-content;
+    text-decoration: none;
   }
-  td.task-name-cell:hover .task-jira-key { display: inline-block; }
+  a.jira-key-chip:hover { color: var(--text-primary); border-color: var(--text-muted); }
+  body.light-mode .jira-key-chip { background: rgba(0,0,0,0.04); }
 
   th.gantt-col { padding: 0; border-bottom: 1px solid var(--border); background: var(--bg-card); position: sticky; top: 0; z-index: 4; border-top-right-radius: 12px; }
   td.gantt-col { padding: 0; border-bottom: 1px solid var(--border); position: relative; height: 38px; background: var(--bg-elevated); }
@@ -934,7 +944,6 @@
   body.light-mode .grid-line-major { background: rgba(0,0,0,0.18); }
   body.light-mode .pri-Low,
   body.light-mode .pri-default { background: rgba(0,0,0,0.06); }
-  body.light-mode .task-jira-key { background: rgba(0,0,0,0.05); }
   body.light-mode .task-name-cell a:hover { color: var(--accent); }
   body.light-mode .filter-btn.active { color: var(--accent); }
   body.light-mode .at-risk td.info-col { background: rgba(244,112,103,0.06) !important; }
@@ -1666,6 +1675,7 @@ function buildTimeline(tasks, teamFilter) {
   let rows =
     '<thead><tr>' +
     '<th class="info-col sticky-pri" style="width:42px">Pri' + tip('Priority from Notion (P0 \u2192 P1 \u2192 P2)') + '</th>' +
+    '<th class="info-col sticky-key" data-col="jira" style="width:92px" title="Click to hide">Key' + tip('Jira epic key \u2014 click a chip to open the ticket in Jira') + '</th>' +
     '<th class="info-col sticky-task" style="width:260px">Task' + tip('Task name from Jira \u2192 Notion \u2014 synced via Realistic Scenario sheet') + '</th>' +
     '<th class="info-col" data-col="prd" style="width:50px" title="Click to hide">PRD' + tip('PRD status from Notion: \u2713=done, Draft, Rev=In Review, N=missing, \u2212=N/A') + '</th>' +
     '<th class="info-col" data-col="risk" style="width:50px" title="Click to hide">Risk' + tip('Risk factor \u2014 from Realistic Scenario sheet (Low / Medium / High)') + '</th>' +
@@ -1725,8 +1735,12 @@ function buildTimeline(tasks, teamFilter) {
     const linkInner = t.epicUrl
       ? '<a href="' + t.epicUrl + '" target="_blank">' + t.task + '</a>'
       : t.task;
-    const link = (t.epic ? '<span class="task-jira-key">' + t.epic + '</span>' : '')
-      + '<span class="task-name-wrap">' + linkInner + '</span>';
+    const link = '<span class="task-name-wrap">' + linkInner + '</span>';
+    const keyChip = t.epic
+      ? (t.epicUrl
+          ? '<a href="' + t.epicUrl + '" target="_blank" class="jira-key-chip">' + t.epic + '</a>'
+          : '<span class="jira-key-chip">' + t.epic + '</span>')
+      : '-';
     var ganttInner = '<div class="gantt-area" style="width:' + GANTT_W + 'px;position:relative;">';
     // Body verticals removed entirely (2026-04-29) — header dividers carry the time anchoring.
     const todayDays = dayOffset(today);
@@ -1892,6 +1906,7 @@ function buildTimeline(tasks, teamFilter) {
     var priStyle = showTeamBorder ? 'border-left:3px solid ' + color + ';' : '';
     return '<tr class="task-row' + (isAtRisk?' at-risk':'') + '" data-epic="' + (t.epic||'') + '" data-task="' + (t.task||'').replace(/"/g,'&quot;') + '" data-tt=\'' + tt + '\'>' +
       '<td class="info-col sticky-pri" style="' + priStyle + '"><span class="priority-badge ' + priCls + '">' + (t.priority||'-') + '</span></td>' +
+      '<td class="info-col sticky-key" data-col="jira">' + keyChip + '</td>' +
       '<td class="info-col sticky-task task-name-cell">' + link + '</td>' +
       '<td class="info-col" data-col="prd">' + prdBadge + '</td>' +
       '<td class="info-col" data-col="risk">' + buildRiskBadge(t.risk) + '</td>' +
@@ -1925,11 +1940,11 @@ function buildTimeline(tasks, teamFilter) {
       if (!teamTasks.length) return;
       var color = TEAM_COLORS[team] || '#64748b';
       // Lead/PM moved out of per-task columns into here (2026-05-07).
-      // Base colspan dropped from 10 to 8 (refactor 2026-05-07), then bumped
-      // to 9 (2026-05-20) when the T-shirt Size column was added between Risk
-      // and Plan Start. showExtra adds Alloc+Status (2); showActual adds Act
-      // Start + Act End (2).
-      var teamColspan = 9 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
+      // Base colspan dropped from 10 to 8 (refactor 2026-05-07), bumped to 9
+      // (2026-05-20, T-shirt Size column), then to 10 (2026-07-22, Jira Key
+      // column between Pri and Task). showExtra adds Alloc+Status (2);
+      // showActual adds Act Start + Act End (2).
+      var teamColspan = 10 + (showExtra ? 2 : 0) + (showActual ? 2 : 0);
       // Continue the Today line through the team-header row so it doesn't
       // visibly break at every team boundary.
       var teamTodayLine = '';
