@@ -1742,6 +1742,17 @@ function buildTimeline(tasks, teamFilter) {
     } else {
       prdBadge = '<span class="prd-badge prd-missing">N</span>';
     }
+    // PRD source hint (2026-09-03): the badge follows the PRD document's own
+    // Notion Status when reachable; hover says where the state came from and
+    // surfaces a drift between the doc and the hand-typed list column.
+    if (t.pm && prdState !== 'na') {
+      var prdTip = (t.prdSource === 'doc')
+        ? 'From PRD document Status: ' + (t.prdDocStatus || '') +
+          ((t.prdColumn && t.prdColumn !== t.prd) ? ' (list column says: ' + t.prdColumn + ')' : '')
+        : 'From "PRD (Done? Y/N)" list column' +
+          ((t.prdUrl && t.prdUrl !== '-') ? ' (PRD document Status unavailable)' : '');
+      prdBadge = '<span title="' + String(prdTip).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '">' + prdBadge + '</span>';
+    }
     // Lead/PM moved to team header (2026-05-07). Tooltip still keeps the per-task value via pmFull.
     const pmFull = t.pm || '-';
     const ttData = {

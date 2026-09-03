@@ -36,8 +36,23 @@ const JIRA_LATE_COMMENTS_CACHE_KEY = 'esl-late-comments-v2';  // bumped 2026-05-
 const JIRA_LATE_COMMENTS_CACHE_TTL = 300;            // 5 minutes
 
 // ── Notion direct API fetch (bypasses Sheets, 10-min cache) ──
-const NOTION_CACHE_KEY = 'esl-notion-direct-v1';
+const NOTION_CACHE_KEY = 'esl-notion-direct-v2';    // v2 (2026-09-03): entries carry prdSource / prdDocStatus / prdColumn
 const NOTION_CACHE_TTL = 600;                        // 10 minutes
+
+// PRD document Status (Notion "Product Documents" DB, property type `status`)
+// → the canonical strings getPrdState() in index.html already classifies.
+// Option list as of 2026-09-03: To Do / Draft / In Review / Approved /
+// In Development / Delivered / Canceled. Anything NOT listed here (Canceled)
+// keeps the hand-typed column value so a real conflict surfaces instead of
+// being silently normalized.
+const PRD_DOC_STATUS_MAP = {
+  'to do':          'To Do',
+  'draft':          'Draft',
+  'in review':      'In Review',
+  'approved':       'Yes',
+  'in development': 'Yes',
+  'delivered':      'Yes',
+};
 
 // Jira 프로젝트 키 prefix → 정규화된 팀명 매핑
 // 여기 없는 prefix는 Notion/Sheets 팀값으로 fallback
@@ -62,7 +77,7 @@ function doGet(e) {
     try {
       const data = buildTimelineData();
       return ContentService
-        .createTextOutput(JSON.stringify({ ok: true, tasks: data.tasks.length, notionSource: data.notionSource }))
+        .createTextOutput(JSON.stringify({ ok: true, tasks: data.tasks.length, notionSource: data.notionSource, prdDoc: data.prdDocStats }))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (err) {
       return ContentService
@@ -606,6 +621,9 @@ function buildTimelineData() {
       pmo:          n.pmo          || '',
       prd:          n.prd          || '',
       prdUrl:       n.prdUrl       || '',
+      prdSource:    n.prdSource    || 'column',   // 'doc' when prd came from the PRD document's Status (2026-09-03)
+      prdDocStatus: n.prdDocStatus || '',
+      prdColumn:    (n.prdColumn !== undefined ? n.prdColumn : (n.prd || '')),
       prdRequirement: '',           // populated by fetchJiraLive override below ("None" = PRD not required)
       engSize:      n.engSize      || '',
       pmSize:       n.pmSize       || '',
@@ -690,7 +708,8 @@ function buildTimelineData() {
     t.lateComments = (k && lateComments[k]) ? lateComments[k] : [];
   });
 
-  return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length, notionSource: notionSource };
+  return { tasks, updatedAt: new Date().toISOString(), totalRows: tasks.length, notionSource: notionSource,
+           prdDocStats: notionDirect ? (notionDirect.prdDocStats || null) : null };
 }
 
 // ============================================================
@@ -965,6 +984,55 @@ function fetchJiraLive(jiraKeys) {
 //   notionTextOrSelect_, notionUrl_, notionPerson_, notionCheckboxOrSelect_,
 //   notionDate_, notionDateRange_, notionRelation_, notionText_, notionSelectOrMulti_
 
+// Extract the 32-hex Notion page id from a PRD URL. Handles notion.so and
+// app.notion.com, slugged or bare, hyphenated UUIDs — and ignores the `?v=`
+// view id in the query string, which is ALSO 32 hex and must not be picked
+// up. Non-Notion links (Confluence) and '-' return ''.
+function notionPageIdFromUrl_(url) {
+  if (!url || typeof url !== 'string') return '';
+  if (!/notion\.(so|com)\//i.test(url)) return '';
+  var path = url.split('?')[0].split('#')[0].replace(/\/+$/, '');
+  var m = path.match(/([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})$/i);
+  return m ? m[1].replace(/-/g, '').toLowerCase() : '';
+}
+
+// Parallel-GET each PRD page and read its Status property. Returns
+// { pageId: { ok: true, status: 'In Review' } | { ok: false, code: 404 } }.
+// Every failure is per-page and non-fatal: the caller keeps the hand-typed
+// "PRD (Done? Y/N)" column for that task. Expected failures: 404 when the
+// URL is a database view (?v=…) rather than a page, 403/404 when the
+// integration lacks access to that page, 429 on a Notion burst limit.
+function fetchPrdDocStatuses_(token, pageIds) {
+  var out = {};
+  if (!pageIds || !pageIds.length) return out;
+  var requests = pageIds.map(function(id) {
+    return {
+      url: 'https://api.notion.com/v1/pages/' + id,
+      method: 'get',
+      headers: { 'Authorization': 'Bearer ' + token, 'Notion-Version': NOTION_VERSION },
+      muteHttpExceptions: true,
+    };
+  });
+  var responses;
+  try { responses = UrlFetchApp.fetchAll(requests); }
+  catch (e) {
+    Logger.log('[prd-doc] fetchAll threw: ' + e.message + ' — all tasks keep column value');
+    return out;
+  }
+  responses.forEach(function(resp, i) {
+    var id = pageIds[i];
+    var code = resp.getResponseCode();
+    if (code !== 200) { out[id] = { ok: false, code: code }; return; }
+    try {
+      var props = (JSON.parse(resp.getContentText()).properties) || {};
+      var p = props['Status'];
+      var name = (p && p.status && p.status.name) || (p && p.select && p.select.name) || '';
+      out[id] = { ok: true, status: name };
+    } catch (e) { out[id] = { ok: false, code: 'parse' }; }
+  });
+  return out;
+}
+
 function fetchNotionDirect() {
   var cache = CacheService.getScriptCache();
   var cached = cache.get(NOTION_CACHE_KEY);
@@ -983,6 +1051,7 @@ function fetchNotionDirect() {
     var pageIdMap = buildPageIdToJiraKeyMap_(pages);
     var byUrl  = {};
     var byName = {};
+    var allEntries = [];
 
     pages.forEach(function(page) {
       var props   = page.properties || {};
@@ -1019,9 +1088,45 @@ function fetchNotionDirect() {
 
       if (jiraUrl && jiraUrl.startsWith('http')) byUrl[jiraUrl] = entry;
       if (entry.requirement) byName[entry.requirement] = entry;
+      allEntries.push(entry);
     });
 
-    var result = { byUrl: byUrl, byName: byName };
+    // ── PRD state from the PRD document itself (2026-09-03) ──
+    // "PRD (Done? Y/N)" is a hand-typed text column on the ESL Project list;
+    // the PRD document (Product Documents DB) carries the real Status. They
+    // drift — the day this landed: column "Yes", doc "In Review". Follow
+    // PRD URL → GET page → read Status → override entry.prd. The column stays
+    // as fallback for non-Notion links, unmapped statuses, and fetch failures.
+    var idToEntries = {};
+    allEntries.forEach(function(en) {
+      en.prdColumn    = en.prd;      // original hand-typed value — tooltip + debug
+      en.prdDocStatus = '';
+      en.prdSource    = 'column';
+      var pid = notionPageIdFromUrl_(en.prdUrl);
+      if (!pid) return;
+      (idToEntries[pid] = idToEntries[pid] || []).push(en);
+    });
+    var pageIds = Object.keys(idToEntries);
+    var prdDocStats = { pages: pageIds.length, ok: 0, failed: 0, mapped: 0, unmapped: [], failures: [] };
+    var docStatuses = pageIds.length ? fetchPrdDocStatuses_(token, pageIds) : {};
+    pageIds.forEach(function(pid) {
+      var r = docStatuses[pid];
+      if (!r || !r.ok) {
+        prdDocStats.failed++;
+        if (prdDocStats.failures.length < 8) prdDocStats.failures.push(pid.slice(0, 8) + ':' + (r ? r.code : 'none'));
+        return;
+      }
+      prdDocStats.ok++;
+      var mapped = PRD_DOC_STATUS_MAP[String(r.status || '').trim().toLowerCase()];
+      idToEntries[pid].forEach(function(en) {
+        en.prdDocStatus = r.status || '';
+        if (mapped) { en.prd = mapped; en.prdSource = 'doc'; prdDocStats.mapped++; }
+        else if (r.status && prdDocStats.unmapped.indexOf(r.status) < 0) prdDocStats.unmapped.push(r.status);
+      });
+    });
+    Logger.log('[prd-doc] ' + JSON.stringify(prdDocStats));
+
+    var result = { byUrl: byUrl, byName: byName, prdDocStats: prdDocStats };
     Logger.log('[notion-direct] fetched ' + pages.length + ' pages, ' +
                Object.keys(byUrl).length + ' by URL, ' +
                Object.keys(byName).length + ' by name');

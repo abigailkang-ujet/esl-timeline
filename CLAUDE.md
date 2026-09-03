@@ -68,7 +68,8 @@ All joins are by `jira_url`. Row order in any tab is irrelevant — manual data 
 
 **Data source priority per field** (2026-05-21):
 - **Jira live (5-min cache)**: status, actualStart, actualEnd, statusChangedAt, resolvedAt, engSize (T-shirt), blocking, blockedBy, relates, summary → `t.requirement`
-- **Notion direct (10-min cache)**: priority, PRD state, PRD URL, strategic, PM/PMO owner, PM size, comment, prelim date, kickoff link/notes, team (fallback after epic prefix)
+- **Notion direct (10-min cache)**: priority, PRD URL, strategic, PM/PMO owner, PM size, comment, prelim date, kickoff link/notes, team (fallback after epic prefix)
+- **PRD document Status (2026-09-03, inside `fetchNotionDirect`)**: `t.prd` now comes from the **PRD document's own Notion `Status`** (Product Documents DB), reached by following `PRD URL` → `GET /v1/pages/{id}` in parallel (`fetchPrdDocStatuses_`). Mapped via `PRD_DOC_STATUS_MAP` (To Do→`To Do`, Draft→`Draft`, In Review→`In Review`, Approved/In Development/Delivered→`Yes`; Canceled unmapped). The hand-typed `PRD (Done? Y/N)` column is now only a **fallback** — used when the PRD URL is non-Notion (Confluence), points at a database view (`?v=`), the integration lacks page access, or the status is unmapped. Each task carries `prdSource` (`'doc'`|`'column'`), `prdDocStatus` (raw), `prdColumn` (original column value). `?debug=1` reports `prdDoc: {pages, ok, failed, mapped, unmapped, failures}`. Cache key bumped to `esl-notion-direct-v2`.
 - **Sheets scenario tabs**: lead, allocation, headcount, risk, start/end (plan), effort, ideal delivery, notes, release, ccaipRelease
 - **Fallback chain for Notion fields**: Notion API direct → Sheets Notion_raw tab (daily sync) → empty
 
@@ -217,6 +218,8 @@ tpl.timelineData = JSON.stringify(data)
 - Hover behavior is CSS-only (no JS, no browser tooltip delay)
 
 ### PRD States (`getPrdState` function)
+**Where `t.prd` comes from (2026-09-03)**: the PRD document's Notion `Status` when reachable (see Data Architecture → PRD document Status), else the hand-typed `PRD (Done? Y/N)` list column. Reason: the two drifted — list column said `Yes` while the PRD doc said `In Review`, and the doc is where PMs actually change state. The badge's hover `title` says which source produced it and shows the column value when it disagrees with the doc. `getPrdState()` itself is unchanged; it still classifies the canonical strings below.
+
 | Value | State | Badge | In PRD Alert? | In PRD card **X** (done) | In PRD card **Y** (required) |
 |-------|-------|-------|----------------|--------------------------|------------------------------|
 | `''` / `No` | `missing` | amber N | ✅ | ❌ | ✅ |
@@ -494,7 +497,10 @@ Email:#06b6d4  AGX:#ec4899  DATA:#a3e635
 - **No test framework**, but there IS a local render harness for `index.html`: replace the `<?!= timelineData ?>` scriptlet with a sample `{tasks:[…], updatedAt:…}` JSON (python one-liner), serve the file over `python3 -m http.server` and open it in a browser. Caveat: `file://` pages don't execute scripts in the Claude browser pane — must serve over HTTP. Used 2026-07-22 to catch the sticky-offset gap before deploy.
 - **Live-URL verification is human-only**: curl gets bounced to UJET SSO, and script.google.com is blocked in the Claude browser pane — after deploying, ask the user to refresh and eyeball.
 
-## Current Status (2026-07-22)
+## Current Status (2026-09-03)
+
+- **PRD badge follows the PRD document** (2026-09-03): `fetchNotionDirect` now follows each task's `PRD URL`, reads the PRD page's `Status`, and overrides `t.prd`. The `PRD (Done? Y/N)` list column is fallback-only. Triggered by ESC-2962: PM set the PRD doc to In Review, list column still said Yes, badge showed a stale Draft — three different answers for one field. Hover on the badge now shows the source. Verify after deploy with `?debug=1` → `prdDoc.ok` should be > 0; if `failed === pages`, the Notion integration lacks access to the Product Documents DB (share the DB with the integration).
+- **SessionStart hook** (2026-09-03): `.claude/hooks/check-behind-origin.sh` warns when the clone is behind origin/main. Added after a session opened on a clone 30 commits stale. Committed to the repo so it travels to every laptop.
 
 - **Jira Key column** (2026-07-22): always-visible Key column between Pri and Task (sticky, collapsible, chip links to Jira). Replaces the hover-revealed `.task-jira-key` badge in the task name cell. Three sticky columns now: Pri 0/42px, Key 42/92px, Task 134px (52px when Key collapsed). Team-header base colspan 9 → 10.
 
