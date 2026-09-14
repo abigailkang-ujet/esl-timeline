@@ -200,12 +200,12 @@ tpl.timelineData = JSON.stringify(data)
 - **Status strip** (below Row 1): dynamic pill cards per status
   - 16px bold number + 11px label, bg-elevated background + border
   - STATUS_ORDER: `['To Do', 'Untriaged', 'In Progress', 'Closed']`
-  - **Clickable**: clicking a pill sets `activeStatus` and calls `renderAll(null)` to filter timeline
-  - Active pill: colored border + tinted background highlight
-  - Click same pill again → deselects (back to ALL)
-- **Schedule strip (2026-04-27)** (below Status strip): same pattern, filter by Schedule status
-  - SCHEDULE_ORDER: `['On Track', 'Behind', 'Ahead', 'Done', '—']` (Done added 2026-05-06)
-  - Variable: `activeSchedule` (parallel to `activeStatus`); AND-combined in `renderTimeline()` filter
+  - **Clickable, MULTI-SELECT (2026-09-14)**: clicking a pill toggles that status in the `activeStatuses` Set and calls `renderAll(null)`. Multiple pills can be active at once (OR within the strip). Empty set = no filter (ALL). Replaced the old single-value `activeStatus` string.
+  - Active pill(s): colored border + tinted background highlight
+  - Click an active pill again → removes just that status from the set
+- **Schedule strip (2026-04-27; multi-select 2026-09-14)** (below Status strip): same pattern, filter by Schedule status
+  - SCHEDULE_ORDER: `['On Track', 'Late Start', 'Behind', 'Ahead', 'Done', '—']` (Done added 2026-05-06)
+  - Variable: `activeSchedules` Set (parallel to `activeStatuses`); OR within the strip, AND-combined across strips in `renderTimeline()` filter
   - Helpers: `getScheduleStatus(t)` (extracted from `buildScheduleBadge`), `scheduleColor(s)`
   - Colors: On Track green, Behind red, Ahead blue, — grey
 - **Pill hover affordance (2026-04-27)**: both Status and Schedule pills get `.strip-pill` class with `:hover` → `translateY(-1px)` + box-shadow + `filter: brightness(1.12)` to signal clickability
@@ -254,8 +254,8 @@ Note: PRD card counts require `t.pm` on both X and Y sides — tasks without a P
 ### Filters
 - **Team**: buttons (based on TEAM_ORDER)
 - **PM**: `<select>` dropdown (not buttons)
-- **Status**: `activeStatus` variable — set by clicking Status strip pills
-- **Schedule (2026-04-27)**: `activeSchedule` variable — set by clicking Schedule strip pills
+- **Status**: `activeStatuses` Set (multi-select 2026-09-14) — toggled by clicking Status strip pills; empty = ALL
+- **Schedule (2026-04-27)**: `activeSchedules` Set (multi-select 2026-09-14) — toggled by clicking Schedule strip pills; empty = ALL
 
 ### Scenario Toggle (2026-05-19) — multi-select
 Located in ctrlRow2 (second control row), next to Search.
@@ -396,7 +396,7 @@ Late-task (overrun / red-hatched Gantt segment) gets a click + hover affordance 
 - **Bar click**: if `epicUrl` exists, `window.open(epicUrl, '_blank')` — cursor:pointer. Native `title` attr is gone; the inline `.bar-label` (see below) covers the visual hint.
 - **Bar hover label (2026-05-07)**: each segment renders an inner `<span class="bar-label">` and grows vertically on hover (6→16px split, 10→18px single) to reveal the date string in white, e.g. `Plan: 4/16 → 5/28`, `Actual: 4/16 → today`, `Late: 5/28 → 6/15`. Built via `seg(left, width, extraStyle, klass, label)` helper. Plan segment darkens its grey bg on hover for white-text contrast; overrun drops the red hatch and switches to solid red on hover. **`overflow: hidden` was deliberately dropped** so labels on narrow bars extend past the bar edges; a strong text-shadow (`0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55)`) keeps the label readable wherever it lands.
 - **Status dot (CSS expand 2026-05-07)**: in gantt-col, `position:absolute left:6px`, default 7×7 colored circle. On `:hover` the dot expands into a same-color pill (`width:auto; height:16px; border-radius:8px`) revealing the status text inside, like the Risk badge's letter→word swap. No JS tooltip — the dot itself is the affordance. Background color is set inline via `style="background:..."` based on `statusColor()`; the `.status-text` child fades in via opacity.
-- **TIMELINE_END**: `new Date('2026-10-31')`
+- **TIMELINE_END**: `new Date('2026-11-30')` (extended from 10-31 on 2026-09-14; `GANTT_W` scaled 1200 → 1370 in step to keep ~5.6px/day density — scale it again on the next extension)
 
 ### Team Header
 - Background: same as task rows (`--bg-elevated` dark / `--bg-card` light) — see "Row background" above. `border-left: 3px solid teamColor`, text in team color provide the only visual grouping cue.
