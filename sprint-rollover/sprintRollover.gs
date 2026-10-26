@@ -299,7 +299,8 @@ function fetchIncompleteIssueKeys_(sprintId) {
 }
 
 function jiraAgile_(method, path, body) {
-  var token = PropertiesService.getScriptProperties().getProperty('jiraToken');
+  // trim + strip quotes: a pasted token with a trailing newline/space gives a bare 401
+  var token = String(PropertiesService.getScriptProperties().getProperty('jiraToken') || '').trim().replace(/^["']|["']$/g, '');
   if (!token) throw new Error('jiraToken not set in Script Properties');
   var opts = {
     method: method,
@@ -312,7 +313,8 @@ function jiraAgile_(method, path, body) {
   var text = resp.getContentText();
   if (code < 200 || code >= 300) {
     throw new Error('Jira ' + method.toUpperCase() + ' ' + path + ' → HTTP ' + code + ': ' + text.slice(0, 300) +
-                    (code === 403 ? ' (needs "Manage Sprints" permission on DEVH)' : ''));
+                    (code === 403 ? ' (needs "Manage Sprints" permission on DEVH)' :
+                     code === 401 ? ' (jiraToken rejected — check it is the same token as the ESL project, for ' + JIRA_EMAIL + ')' : ''));
   }
   return text ? JSON.parse(text) : {};
 }
