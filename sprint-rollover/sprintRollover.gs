@@ -334,3 +334,37 @@ function sendRolloverMail_(res, live) {
 function showRollover_(title, res) {
   Logger.log(title + '\n' + res.lines.join('\n'));
 }
+
+/**
+ * Editor: figure out WHY Jira returns 401. Tries the same token against
+ *   1. site URL, platform API   (/rest/api/3/myself)        — what the ESL timeline uses
+ *   2. site URL, agile API      (/rest/agile/1.0/board/…)   — what this script uses
+ *   3. API gateway, both        (api.atlassian.com/ex/jira/{cloudId}/…) — required for *scoped* API tokens
+ * Never logs the token itself, only its length.
+ */
+function diagnoseJiraAuth() {
+  var raw = PropertiesService.getScriptProperties().getProperty('jiraToken') || '';
+  var token = String(raw).trim().replace(/^["']|["']$/g, '');
+  var auth = { Authorization: 'Basic ' + Utilities.base64Encode(JIRA_EMAIL + ':' + token), Accept: 'application/json' };
+  var out = ['email: ' + JIRA_EMAIL, 'token length: ' + raw.length + ' raw / ' + token.length + ' cleaned'];
+
+  var cloudId = '';
+  try {
+    cloudId = JSON.parse(UrlFetchApp.fetch('https://' + JIRA_DOMAIN + '/_edge/tenant_info').getContentText()).cloudId;
+  } catch (e) { out.push('cloudId lookup failed: ' + e); }
+  out.push('cloudId: ' + cloudId);
+
+  var probes = [
+    ['site  /rest/api/3/myself',            'https://' + JIRA_DOMAIN + '/rest/api/3/myself'],
+    ['site  /rest/agile board',             'https://' + JIRA_DOMAIN + '/rest/agile/1.0/board/' + SPRINT_BOARD_ID],
+    ['gateway /rest/api/3/myself',          'https://api.atlassian.com/ex/jira/' + cloudId + '/rest/api/3/myself'],
+    ['gateway /rest/agile board',           'https://api.atlassian.com/ex/jira/' + cloudId + '/rest/agile/1.0/board/' + SPRINT_BOARD_ID],
+  ];
+  probes.forEach(function(p) {
+    try {
+      var r = UrlFetchApp.fetch(p[1], { headers: auth, muteHttpExceptions: true });
+      out.push(p[0] + ' → ' + r.getResponseCode() + '  ' + r.getContentText().slice(0, 120).replace(/\s+/g, ' '));
+    } catch (e) { out.push(p[0] + ' → threw ' + e); }
+  });
+  Logger.log(out.join('\n'));
+}
