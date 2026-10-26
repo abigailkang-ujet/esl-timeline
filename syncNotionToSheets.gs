@@ -594,14 +594,6 @@ function onOpen() {
     .addSeparator()
     .addItem('Compare Sizes: Notion vs Jira', 'compareSizesNotionVsJira')
     .addToUi();
-
-  ui.createMenu('Sprint Rollover')
-    .addItem('Preview today', 'previewSprintRollover')
-    .addItem('Preview next rollover', 'previewNextSprintRollover')
-    .addSeparator()
-    .addItem('Set up daily 9 AM KST trigger', 'setupSprintRolloverTrigger')
-    .addItem('Remove trigger', 'removeSprintRolloverTrigger')
-    .addToUi();
 }
 
 /**

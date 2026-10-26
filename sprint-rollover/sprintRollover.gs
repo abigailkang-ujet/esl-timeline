@@ -16,9 +16,13 @@
  * Dry-run by default — nothing is written to Jira until Script Property
  * `sprintRolloverLive` = 'true' (run enableSprintRolloverLive()).
  *
- * Reuses JIRA_DOMAIN / JIRA_EMAIL from webApp.gs and the `jiraToken` Script Property.
- * Jira account needs "Manage Sprints" on DEVH.
+ * Standalone Apps Script project "DevHub Sprint Rollover" (split out of the ESL timeline project
+ * 2026-10-26). Needs Script Property `jiraToken` (API token for JIRA_EMAIL);
+ * that Jira account needs "Manage Sprints" on DEVH.
  */
+
+const JIRA_DOMAIN = 'ujetcs.atlassian.net';
+const JIRA_EMAIL  = 'abigail.kang@ujet.cx';
 
 const SPRINT_BOARD_ID    = 1783;
 const SPRINT_CALENDAR_ID = 'ujet.co_usq5ksn27smeqs37ik6dd3ev08@group.calendar.google.com';
@@ -36,13 +40,13 @@ function runSprintRollover() {
   Logger.log(res.lines.join('\n'));
 }
 
-/** Editor/menu: what would happen today (never writes). */
+/** Editor: what would happen today (never writes). */
 function previewSprintRollover() {
   var res = rolloverFor_(todayKst_(), false);
   showRollover_('Sprint Rollover — preview (today)', res);
 }
 
-/** Editor/menu: what will happen on the next calendar sprint boundary, given Jira as it is now (never writes). */
+/** Editor: what will happen on the next calendar sprint boundary, given Jira as it is now (never writes). */
 function previewNextSprintRollover() {
   var today = todayKst_();
   var cal = readCalendarSprints_(today);
@@ -324,9 +328,7 @@ function sendRolloverMail_(res, live) {
   MailApp.sendEmail(Session.getEffectiveUser().getEmail(), subject, body);
 }
 
-/** Alert when run from the spreadsheet menu; Logger when run from the editor (no UI there). */
+/** Standalone project has no UI — results go to the editor's execution log. */
 function showRollover_(title, res) {
-  var msg = res.lines.join('\n');
-  Logger.log(title + '\n' + msg);
-  try { SpreadsheetApp.getUi().alert(title, msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { /* editor run */ }
+  Logger.log(title + '\n' + res.lines.join('\n'));
 }
