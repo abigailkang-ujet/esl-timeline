@@ -43,6 +43,7 @@ function runSprintRollover() {
 /** Editor: what would happen today (never writes). */
 function previewSprintRollover() {
   var res = rolloverFor_(todayKst_(), false);
+  res.lines.push('', manageSprintsCheck_());
   showRollover_('Sprint Rollover — preview (today)', res);
 }
 
@@ -53,6 +54,7 @@ function previewNextSprintRollover() {
   var upcoming = cal.filter(function(s) { return s.start > today; })[0];
   if (!upcoming) { showRollover_('Sprint Rollover — preview', { lines: ['No upcoming sprint in the calendar.'] }); return; }
   var res = rolloverFor_(upcoming.start, false);
+  res.lines.push('', manageSprintsCheck_());
   showRollover_('Sprint Rollover — preview (' + upcoming.start + ')', res);
 }
 
@@ -296,6 +298,23 @@ function fetchIncompleteIssueKeys_(sprintId) {
     if (!issues.length || startAt >= (page.total || 0)) break;
   }
   return keys;
+}
+
+/** Live mode needs "Manage Sprints" on DEVH — previews only read, so check it explicitly. */
+function manageSprintsCheck_() {
+  try {
+    var token = String(PropertiesService.getScriptProperties().getProperty('jiraToken') || '').trim().replace(/^["']|["']$/g, '');
+    var resp = UrlFetchApp.fetch('https://' + JIRA_DOMAIN + '/rest/api/3/mypermissions?projectKey=DEVH&permissions=MANAGE_SPRINTS_PERMISSION', {
+      headers: { Authorization: 'Basic ' + Utilities.base64Encode(JIRA_EMAIL + ':' + token), Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+    if (resp.getResponseCode() !== 200) return '⚠️ Manage Sprints check failed: HTTP ' + resp.getResponseCode();
+    var p = JSON.parse(resp.getContentText()).permissions.MANAGE_SPRINTS_PERMISSION;
+    return p && p.havePermission ? '🔑 Manage Sprints on DEVH: yes — live mode will work'
+                                 : '⚠️ Manage Sprints on DEVH: NO — live mode will fail with 403; ask a Jira admin';
+  } catch (e) {
+    return '⚠️ Manage Sprints check failed: ' + e;
+  }
 }
 
 function jiraAgile_(method, path, body) {
