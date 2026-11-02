@@ -1,5 +1,7 @@
 /**
- * sprintRollover.gs — DevHub board (DEVH, board 1783) sprint auto-rollover.
+ * sprintRollover.gs — Jira sprint automation driven by the Release Calendar.
+ *   DevHub (DEVH, board 1783): full rollover + pre-create every future calendar sprint
+ *   ESC    (ESC,  board 278) : pre-create every future calendar sprint only (no rollover)
  *
  * Source of truth for sprint dates/names = the UJET "Release Calendar" Google Calendar
  * (all-day events titled like "Q26.4 Sprint 3" / "Q26.4 Sprint 4 - Bug Fix",
@@ -10,7 +12,8 @@
  *   2. if Jira's active sprint is a different one: moves incomplete issues into today's
  *      sprint (creating it from the calendar if missing), completes the old sprint,
  *      starts the new one with the calendar dates
- *   3. makes sure the calendar's NEXT sprint exists on the board (creates it as future)
+ *   3. on EVERY board in SPRINT_BOARDS: creates each future calendar sprint that is missing
+ *      (as a future sprint with the calendar dates) — boards without `rollover` only get this step
  *   4. emails the result to the script owner (only when something happened or needs attention)
  *
  * Dry-run by default — nothing is written to Jira until Script Property
@@ -18,15 +21,18 @@
  *
  * Standalone Apps Script project "DevHub Sprint Rollover" (split out of the ESL timeline project
  * 2026-10-26). Needs Script Property `jiraToken` (API token for JIRA_EMAIL);
- * that Jira account needs "Manage Sprints" on DEVH.
+ * that Jira account needs "Manage Sprints" on every project in SPRINT_BOARDS.
  */
 
 const JIRA_DOMAIN = 'ujetcs.atlassian.net';
 const JIRA_EMAIL  = 'abigail.kang@ujet.cx';
 
-const SPRINT_BOARD_ID    = 1783;
+// bugSuffix follows each board's own naming habit; matching is by Q<yy>.<q>-<N> key, so it never breaks lookups.
+const SPRINT_BOARDS = [
+  { id: 1783, project: 'DEVH', prefix: 'DevHub', bugSuffix: ' Bug Fix',   rollover: true  },
+  { id: 278,  project: 'ESC',  prefix: 'ESC',    bugSuffix: ' - Bug Fix', rollover: false },
+];
 const SPRINT_CALENDAR_ID = 'ujet.co_usq5ksn27smeqs37ik6dd3ev08@group.calendar.google.com';
-const SPRINT_NAME_PREFIX = 'DevHub';
 const SPRINT_LIVE_PROP   = 'sprintRolloverLive';
 const SPRINT_TZ_OFFSET   = '+09:00';   // KST, no DST — Jira sprint boundaries are 00:00 KST
 
@@ -90,57 +96,92 @@ function disableSprintRolloverLive() {
 
 // ─────────────────────────── orchestration ───────────────────────────
 
-/** Reads calendar + Jira, plans, executes (or simulates). Never throws — errors land in the result. */
+/** Reads calendar once, then plans + executes (or simulates) per board. Never throws — errors land in the result. */
 function rolloverFor_(today, live) {
   var res = { today: today, lines: [], notify: false, error: null, summary: '' };
+  var summaries = [];
+  var cal;
   try {
-    var cal   = readCalendarSprints_(today);
-    var jira  = fetchBoardSprints_();
-    var plan  = planRollover_(today, cal, jira);
-    res.summary = plan.summary;
-    res.lines.push('Today (KST): ' + today + '   Mode: ' + (live ? 'LIVE' : 'DRY RUN'));
-    res.lines.push('Calendar sprint: ' + (plan.current ? plan.current.title + ' (' + plan.current.start + ' → ' + plan.current.endExcl + ')' : '—'));
-    res.lines.push('Jira active:     ' + (plan.active ? plan.active.name : '—'));
-    res.lines.push('');
-    plan.warnings.forEach(function(w) { res.lines.push('⚠️ ' + w); });
-    if (!plan.actions.length) res.lines.push('Nothing to do.');
-    executeRollover_(plan.actions, live, res.lines);
-    res.notify = plan.actions.length > 0 || plan.warnings.length > 0;
+    cal = readCalendarSprints_(today);
   } catch (e) {
     res.error = String(e && e.message || e);
     res.lines.push('❌ ' + res.error);
     res.notify = true;
+    return res;
   }
+  res.lines.push('Today (KST): ' + today + '   Mode: ' + (live ? 'LIVE' : 'DRY RUN'));
+  SPRINT_BOARDS.forEach(function(board) {
+    res.lines.push('', '━━ ' + board.prefix + ' (board ' + board.id + (board.rollover ? ', rollover' : ', pre-create only') + ') ━━');
+    try {
+      var plan = planRollover_(today, cal, fetchBoardSprints_(board), board);
+      summaries.push(board.prefix + ': ' + plan.summary);
+      if (board.rollover) {
+        res.lines.push('Calendar sprint: ' + (plan.current ? plan.current.title + ' (' + plan.current.start + ' → ' + plan.current.endExcl + ')' : '—'));
+        res.lines.push('Jira active:     ' + (plan.active ? plan.active.name : '—'));
+      }
+      plan.warnings.forEach(function(w) { res.lines.push('⚠️ ' + w); });
+      if (!plan.actions.length) res.lines.push('Nothing to do.');
+      executeRollover_(plan.actions, live, res.lines, board);
+      if (plan.actions.length || plan.warnings.length) res.notify = true;
+    } catch (e) {
+      var msg = board.prefix + ': ' + String(e && e.message || e);
+      res.error = res.error ? res.error + '; ' + msg : msg;
+      summaries.push(board.prefix + ': ERROR');
+      res.lines.push('❌ ' + msg);
+      res.notify = true;
+    }
+  });
+  res.summary = summaries.join(' | ');
   return res;
 }
 
 /**
  * Pure planner — no I/O, so it can be exercised with fixtures.
- *   cal  : [{key, title, bug, start, endExcl}] sorted by start ('yyyy-MM-dd')
- *   jira : [{id, name, state, originBoardId}]  (active + future sprints of the board)
+ *   cal   : [{key, title, bug, start, endExcl}] sorted by start ('yyyy-MM-dd')
+ *   jira  : [{id, name, state, originBoardId}]  (active + future sprints of the board)
+ *   board : an entry of SPRINT_BOARDS
  * Returns { current, next, active, actions:[...], warnings:[...], summary }.
  */
-function planRollover_(today, cal, jira) {
+function planRollover_(today, cal, jira, board) {
   var plan = { current: null, next: null, active: null, actions: [], warnings: [], summary: '' };
+  var mine = jira.filter(function(s) { return !s.originBoardId || s.originBoardId === board.id; });
+  var byKey = function(key) { return mine.filter(function(s) { return sprintKey_(s.name) === key; })[0] || null; };
 
   plan.current = cal.filter(function(s) { return s.start <= today && today < s.endExcl; })[0] || null;
-  if (!plan.current) {
-    plan.warnings.push('No Release Calendar sprint covers ' + today + ' — nothing changed. Add the sprint to the calendar.');
-    plan.summary = 'no calendar sprint for ' + today;
-    return plan;
+  if (plan.current) {
+    var curEnd = plan.current.endExcl;
+    plan.next = cal.filter(function(s) { return s.start >= curEnd; })[0] || null;
   }
-  var cur = plan.current;
-  plan.next = cal.filter(function(s) { return s.start >= cur.endExcl; })[0] || null;
+  if (board.rollover) planBoundary_(today, cal, mine, byKey, board, plan);
 
-  var mine = jira.filter(function(s) { return !s.originBoardId || s.originBoardId === SPRINT_BOARD_ID; });
+  // Pre-create every future calendar sprint the board doesn't have yet (calendar order = backlog order).
+  var created = [];
+  cal.forEach(function(s) {
+    if (s.start > today && !byKey(s.key)) {
+      plan.actions.push({ type: 'create', sprint: s });
+      created.push(jiraSprintName_(s, board));
+    }
+  });
+  if (created.length) plan.summary = (plan.summary ? plan.summary + '; ' : '') + 'create ' + created.join(', ');
+  if (!plan.summary) plan.summary = 'no change';
+  return plan;
+}
+
+/** Rollover half of the planner: complete the active sprint and start today's calendar sprint when they differ. */
+function planBoundary_(today, cal, mine, byKey, board, plan) {
+  var cur = plan.current;
+  if (!cur) {
+    plan.warnings.push('No Release Calendar sprint covers ' + today + ' — no rollover. Add the sprint to the calendar.');
+    plan.summary = 'no calendar sprint for ' + today;
+    return;
+  }
   var actives = mine.filter(function(s) { return s.state === 'active'; });
   if (actives.length > 1) {
-    plan.warnings.push('More than one active sprint on the board (' + actives.map(function(s) { return s.name; }).join(', ') + ') — not touching anything.');
+    plan.warnings.push('More than one active sprint on the board (' + actives.map(function(s) { return s.name; }).join(', ') + ') — no rollover.');
     plan.summary = 'multiple active sprints';
-    return plan;
+    return;
   }
   var active = plan.active = actives[0] || null;
-  var byKey = function(key) { return mine.filter(function(s) { return sprintKey_(s.name) === key; })[0] || null; };
 
   var activeKey = active ? sprintKey_(active.name) : null;
   if (activeKey !== cur.key) {
@@ -150,33 +191,29 @@ function planRollover_(today, cal, jira) {
       plan.warnings.push('Jira active sprint "' + active.name + '" is ahead of the calendar (' + cur.title + ') — not touching it.');
     } else {
       var target = byKey(cur.key);
+      var targetName = target ? target.name : jiraSprintName_(cur, board);
       if (!target) plan.actions.push({ type: 'create', sprint: cur });
       if (active) {
-        plan.actions.push({ type: 'moveIncomplete', from: active, toKey: cur.key, toId: target ? target.id : null, toName: target ? target.name : jiraSprintName_(cur) });
+        plan.actions.push({ type: 'moveIncomplete', from: active, toKey: cur.key, toId: target ? target.id : null, toName: targetName });
         plan.actions.push({ type: 'close', sprint: active });
       }
-      plan.actions.push({ type: 'start', key: cur.key, id: target ? target.id : null, name: target ? target.name : jiraSprintName_(cur), cal: cur });
-      plan.summary = (active ? active.name : '(none)') + ' → ' + (target ? target.name : jiraSprintName_(cur));
+      plan.actions.push({ type: 'start', key: cur.key, id: target ? target.id : null, name: targetName, cal: cur });
+      plan.summary = (active ? active.name : '(none)') + ' → ' + targetName;
     }
   }
 
-  if (plan.next) {
-    if (!byKey(plan.next.key)) plan.actions.push({ type: 'create', sprint: plan.next });
-  } else if (daysBetween_(today, cur.endExcl) <= 7) {
+  if (!plan.next && daysBetween_(today, cur.endExcl) <= 7) {
     plan.warnings.push('Release Calendar has no sprint after ' + cur.title + ' (ends ' + cur.endExcl + ') — next rollover will stall until it is added.');
   }
-
-  if (!plan.summary) plan.summary = plan.actions.length ? 'create ' + jiraSprintName_(plan.next) : 'no change';
-  return plan;
 }
 
 /** Runs planned actions in order. Dry-run still READS (incomplete issue list) so the email is concrete. */
-function executeRollover_(actions, live, lines) {
+function executeRollover_(actions, live, lines, board) {
   var idByKey = {};
   var verb = live ? '' : '[dry run] would ';
   actions.forEach(function(a) {
     if (a.type === 'create') {
-      var body = jiraSprintBody_(a.sprint);
+      var body = jiraSprintBody_(a.sprint, board);
       lines.push('➕ ' + verb + 'create "' + body.name + '" (' + a.sprint.start + ' → ' + addDays_(a.sprint.endExcl, -1) + ')');
       if (live) idByKey[a.sprint.key] = jiraAgile_('post', '/sprint', body).id;
     } else if (a.type === 'moveIncomplete') {
@@ -184,7 +221,7 @@ function executeRollover_(actions, live, lines) {
       lines.push('↪️ ' + verb + 'move ' + keys.length + ' incomplete issue(s) from "' + a.from.name + '" → "' + a.toName + '"' +
                  (keys.length ? ': ' + keys.join(', ') : ''));
       if (live && keys.length) {
-        var toId = a.toId || idByKey[a.toKey] || findSprintIdByKey_(a.toKey);
+        var toId = a.toId || idByKey[a.toKey] || findSprintIdByKey_(a.toKey, board);
         for (var i = 0; i < keys.length; i += 50) {
           jiraAgile_('post', '/sprint/' + toId + '/issue', { issues: keys.slice(i, i + 50) });
         }
@@ -193,10 +230,10 @@ function executeRollover_(actions, live, lines) {
       lines.push('✅ ' + verb + 'complete "' + a.sprint.name + '"');
       if (live) jiraAgile_('post', '/sprint/' + a.sprint.id, { state: 'closed' });
     } else if (a.type === 'start') {
-      var dates = jiraSprintBody_(a.cal);
+      var dates = jiraSprintBody_(a.cal, board);
       lines.push('▶️ ' + verb + 'start "' + a.name + '" (' + a.cal.start + ' → ' + addDays_(a.cal.endExcl, -1) + ')');
       if (live) {
-        var id = a.id || idByKey[a.key] || findSprintIdByKey_(a.key);
+        var id = a.id || idByKey[a.key] || findSprintIdByKey_(a.key, board);
         jiraAgile_('post', '/sprint/' + id, { state: 'active', startDate: dates.startDate, endDate: dates.endDate });
       }
     }
@@ -211,17 +248,17 @@ function sprintKey_(name) {
   return m ? 'Q' + m[1] + '.' + m[2] + '-' + Number(m[3]) : null;
 }
 
-/** Calendar entry → Jira sprint name, e.g. "DevHub Q26.4 Sprint 6 Bug Fix". */
-function jiraSprintName_(cal) {
+/** Calendar entry → Jira sprint name, e.g. "DevHub Q26.4 Sprint 6 Bug Fix" / "ESC Q26.4 Sprint 6 - Bug Fix". */
+function jiraSprintName_(cal, board) {
   var m = cal.key.match(/^Q(\d+\.\d+)-(\d+)$/);
-  return SPRINT_NAME_PREFIX + ' Q' + m[1] + ' Sprint ' + m[2] + (cal.bug ? ' Bug Fix' : '');
+  return board.prefix + ' Q' + m[1] + ' Sprint ' + m[2] + (cal.bug ? board.bugSuffix : '');
 }
 
 /** Jira sprint body. Matches existing board convention: start = first day 00:00 KST, end = last calendar day (exclusive end − 1) 00:00 KST. */
-function jiraSprintBody_(cal) {
+function jiraSprintBody_(cal, board) {
   return {
-    name: jiraSprintName_(cal),
-    originBoardId: SPRINT_BOARD_ID,
+    name: jiraSprintName_(cal, board),
+    originBoardId: board.id,
     startDate: cal.start + 'T00:00:00.000' + SPRINT_TZ_OFFSET,
     endDate: addDays_(cal.endExcl, -1) + 'T00:00:00.000' + SPRINT_TZ_OFFSET,
   };
@@ -267,10 +304,10 @@ function readCalendarSprints_(today) {
     .sort(function(a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; });
 }
 
-function fetchBoardSprints_() {
+function fetchBoardSprints_(board) {
   var out = [], startAt = 0;
   for (;;) {
-    var page = jiraAgile_('get', '/board/' + SPRINT_BOARD_ID + '/sprint?state=active,future&maxResults=50&startAt=' + startAt);
+    var page = jiraAgile_('get', '/board/' + board.id + '/sprint?state=active,future&maxResults=50&startAt=' + startAt);
     out = out.concat(page.values || []);
     if (page.isLast || !(page.values || []).length) break;
     startAt += page.values.length;
@@ -278,9 +315,9 @@ function fetchBoardSprints_() {
   return out;
 }
 
-function findSprintIdByKey_(key) {
-  var s = fetchBoardSprints_().filter(function(x) { return sprintKey_(x.name) === key; })[0];
-  if (!s) throw new Error('Sprint ' + key + ' not found on board ' + SPRINT_BOARD_ID);
+function findSprintIdByKey_(key, board) {
+  var s = fetchBoardSprints_(board).filter(function(x) { return sprintKey_(x.name) === key; })[0];
+  if (!s) throw new Error('Sprint ' + key + ' not found on board ' + board.id);
   return s.id;
 }
 
@@ -300,21 +337,23 @@ function fetchIncompleteIssueKeys_(sprintId) {
   return keys;
 }
 
-/** Live mode needs "Manage Sprints" on DEVH — previews only read, so check it explicitly. */
+/** Live mode needs "Manage Sprints" on each board's project — previews only read, so check it explicitly. */
 function manageSprintsCheck_() {
-  try {
-    var token = String(PropertiesService.getScriptProperties().getProperty('jiraToken') || '').trim().replace(/^["']|["']$/g, '');
-    var resp = UrlFetchApp.fetch('https://' + JIRA_DOMAIN + '/rest/api/3/mypermissions?projectKey=DEVH&permissions=MANAGE_SPRINTS_PERMISSION', {
-      headers: { Authorization: 'Basic ' + Utilities.base64Encode(JIRA_EMAIL + ':' + token), Accept: 'application/json' },
-      muteHttpExceptions: true,
-    });
-    if (resp.getResponseCode() !== 200) return '⚠️ Manage Sprints check failed: HTTP ' + resp.getResponseCode();
-    var p = JSON.parse(resp.getContentText()).permissions.MANAGE_SPRINTS_PERMISSION;
-    return p && p.havePermission ? '🔑 Manage Sprints on DEVH: yes — live mode will work'
-                                 : '⚠️ Manage Sprints on DEVH: NO — live mode will fail with 403; ask a Jira admin';
-  } catch (e) {
-    return '⚠️ Manage Sprints check failed: ' + e;
-  }
+  var token = String(PropertiesService.getScriptProperties().getProperty('jiraToken') || '').trim().replace(/^["']|["']$/g, '');
+  return SPRINT_BOARDS.map(function(board) {
+    try {
+      var resp = UrlFetchApp.fetch('https://' + JIRA_DOMAIN + '/rest/api/3/mypermissions?projectKey=' + board.project + '&permissions=MANAGE_SPRINTS_PERMISSION', {
+        headers: { Authorization: 'Basic ' + Utilities.base64Encode(JIRA_EMAIL + ':' + token), Accept: 'application/json' },
+        muteHttpExceptions: true,
+      });
+      if (resp.getResponseCode() !== 200) return '⚠️ Manage Sprints check on ' + board.project + ' failed: HTTP ' + resp.getResponseCode();
+      var p = JSON.parse(resp.getContentText()).permissions.MANAGE_SPRINTS_PERMISSION;
+      return p && p.havePermission ? '🔑 Manage Sprints on ' + board.project + ': yes — live mode will work'
+                                   : '⚠️ Manage Sprints on ' + board.project + ': NO — live mode will fail with 403; ask a Jira admin';
+    } catch (e) {
+      return '⚠️ Manage Sprints check on ' + board.project + ' failed: ' + e;
+    }
+  }).join('\n');
 }
 
 function jiraAgile_(method, path, body) {
@@ -332,7 +371,7 @@ function jiraAgile_(method, path, body) {
   var text = resp.getContentText();
   if (code < 200 || code >= 300) {
     throw new Error('Jira ' + method.toUpperCase() + ' ' + path + ' → HTTP ' + code + ': ' + text.slice(0, 300) +
-                    (code === 403 ? ' (needs "Manage Sprints" permission on DEVH)' :
+                    (code === 403 ? ' (needs "Manage Sprints" permission on the project)' :
                      code === 401 ? ' (jiraToken rejected — check it is the same token as the ESL project, for ' + JIRA_EMAIL + ')' : ''));
   }
   return text ? JSON.parse(text) : {};
@@ -344,7 +383,9 @@ function sendRolloverMail_(res, live) {
   var tag = res.error ? 'ERROR' : (live ? 'done' : 'DRY RUN');
   var subject = '[Sprint Rollover] ' + tag + ' — ' + (res.summary || res.today);
   var body = res.lines.join('\n') +
-    '\n\nBoard: https://' + JIRA_DOMAIN + '/jira/software/c/projects/DEVH/boards/' + SPRINT_BOARD_ID + '/backlog' +
+    '\n\nBoards:\n' + SPRINT_BOARDS.map(function(b) {
+      return '  ' + b.prefix + ': https://' + JIRA_DOMAIN + '/jira/software/c/projects/' + b.project + '/boards/' + b.id + '/backlog';
+    }).join('\n') +
     (live ? '' : '\n\nDry run — nothing was changed. Run enableSprintRolloverLive() in the Apps Script editor to go live.');
   MailApp.sendEmail(Session.getEffectiveUser().getEmail(), subject, body);
 }
@@ -375,9 +416,9 @@ function diagnoseJiraAuth() {
 
   var probes = [
     ['site  /rest/api/3/myself',            'https://' + JIRA_DOMAIN + '/rest/api/3/myself'],
-    ['site  /rest/agile board',             'https://' + JIRA_DOMAIN + '/rest/agile/1.0/board/' + SPRINT_BOARD_ID],
+    ['site  /rest/agile board',             'https://' + JIRA_DOMAIN + '/rest/agile/1.0/board/' + SPRINT_BOARDS[0].id],
     ['gateway /rest/api/3/myself',          'https://api.atlassian.com/ex/jira/' + cloudId + '/rest/api/3/myself'],
-    ['gateway /rest/agile board',           'https://api.atlassian.com/ex/jira/' + cloudId + '/rest/agile/1.0/board/' + SPRINT_BOARD_ID],
+    ['gateway /rest/agile board',           'https://api.atlassian.com/ex/jira/' + cloudId + '/rest/agile/1.0/board/' + SPRINT_BOARDS[0].id],
   ];
   probes.forEach(function(p) {
     try {
