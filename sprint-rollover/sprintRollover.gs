@@ -14,7 +14,9 @@
  *      starts the new one with the calendar dates
  *   3. on EVERY board in SPRINT_BOARDS: creates each future calendar sprint that is missing
  *      (as a future sprint with the calendar dates) — boards without `rollover` only get this step
- *   4. emails the result to the script owner (only when something happened or needs attention)
+ *   4. on EVERY board: if the calendar dates of a sprint changed, moves the Jira sprint to match
+ *      (future sprints: start + end; the active sprint: end only — its start is when work began)
+ *   5. emails the result to the script owner (only when something happened or needs attention)
  *
  * Dry-run by default — nothing is written to Jira until Script Property
  * `sprintRolloverLive` = 'true' (run enableSprintRolloverLive()).
@@ -163,6 +165,29 @@ function planRollover_(today, cal, jira, board) {
     }
   });
   if (created.length) plan.summary = (plan.summary ? plan.summary + '; ' : '') + 'create ' + created.join(', ');
+
+  // Calendar wins: existing sprints whose dates drifted from the calendar get moved. Sprints the rollover
+  // above is already closing/starting are skipped (start sets the calendar dates itself).
+  var touched = {};
+  plan.actions.forEach(function(a) {
+    if (a.type === 'close') touched[a.sprint.id] = true;
+    if (a.type === 'start' && a.id) touched[a.id] = true;
+  });
+  var moved = [];
+  mine.forEach(function(s) {
+    if (touched[s.id]) return;
+    var c = cal.filter(function(x) { return x.key === sprintKey_(s.name); })[0];
+    if (!c) return;
+    var want = { start: c.start, end: addDays_(c.endExcl, -1) };
+    var have = { start: kstDate_(s.startDate), end: kstDate_(s.endDate) };
+    var endOnly = s.state === 'active';
+    if (have.end !== want.end || (!endOnly && have.start !== want.start)) {
+      plan.actions.push({ type: 'reschedule', sprint: s, cal: c, endOnly: endOnly, have: have, want: want });
+      moved.push(s.name);
+    }
+  });
+  if (moved.length) plan.summary = (plan.summary ? plan.summary + '; ' : '') + 'reschedule ' + moved.join(', ');
+
   if (!plan.summary) plan.summary = 'no change';
   return plan;
 }
@@ -229,6 +254,12 @@ function executeRollover_(actions, live, lines, board) {
     } else if (a.type === 'close') {
       lines.push('✅ ' + verb + 'complete "' + a.sprint.name + '"');
       if (live) jiraAgile_('post', '/sprint/' + a.sprint.id, { state: 'closed' });
+    } else if (a.type === 'reschedule') {
+      var b = jiraSprintBody_(a.cal, board);
+      lines.push('🗓️ ' + verb + 'reschedule "' + a.sprint.name + '" to match the calendar: ' +
+                 (a.endOnly ? 'end ' + (a.have.end || '—') + ' → ' + a.want.end + ' (active — start kept)'
+                            : (a.have.start || '—') + ' → ' + (a.have.end || '—') + '  ⇒  ' + a.want.start + ' → ' + a.want.end));
+      if (live) jiraAgile_('post', '/sprint/' + a.sprint.id, a.endOnly ? { endDate: b.endDate } : { startDate: b.startDate, endDate: b.endDate });
     } else if (a.type === 'start') {
       var dates = jiraSprintBody_(a.cal, board);
       lines.push('▶️ ' + verb + 'start "' + a.name + '" (' + a.cal.start + ' → ' + addDays_(a.cal.endExcl, -1) + ')');
@@ -262,6 +293,12 @@ function jiraSprintBody_(cal, board) {
     startDate: cal.start + 'T00:00:00.000' + SPRINT_TZ_OFFSET,
     endDate: addDays_(cal.endExcl, -1) + 'T00:00:00.000' + SPRINT_TZ_OFFSET,
   };
+}
+
+/** Jira ISO timestamp ("2026-11-28T15:00:00.000Z") → KST calendar day ("2026-11-29"). '' when unset. */
+function kstDate_(iso) {
+  if (!iso) return '';
+  return new Date(Date.parse(iso) + 9 * 3600000).toISOString().slice(0, 10);
 }
 
 function todayKst_() {
